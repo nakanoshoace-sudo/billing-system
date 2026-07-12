@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIX 請求書オートメーション</title>
+<style>
+  :root{
+    --bg:#0B111C; --bg-2:#0E1626; --panel:#131F33; --panel-2:#17253C; --raised:#1B2C46;
+    --line:#243651; --line-soft:#1D2C43; --ink:#EAF1FB; --ink-2:#A7B6D0; --ink-3:#6E7F9C;
+    --ai:#3DE0D0; --ai-dim:#1E6E68; --ai-glow:rgba(61,224,208,.16);
+    --ok:#37D28A; --ok-dim:rgba(55,210,138,.14);
+    --delta:#F6B23D; --delta-dim:rgba(246,178,61,.15);
+    --ret:#F0788A; --ret-dim:rgba(240,120,138,.14);
+    --violet:#9C8CF7; --radius:14px;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono","Roboto Mono",Menlo,Consolas,monospace;
+    --jp:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic Medium","Yu Gothic","Noto Sans JP",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:radial-gradient(1200px 700px at 82% -12%,rgba(61,224,208,.07),transparent 60%),radial-gradient(900px 600px at -5% 120%,rgba(156,140,247,.06),transparent 55%),var(--bg);
+    color:var(--ink);font-family:var(--jp);-webkit-font-smoothing:antialiased;letter-spacing:.01em;min-height:100vh}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  :focus-visible{outline:2px solid var(--ai);outline-offset:2px;border-radius:6px}
+  @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;transition-duration:.001ms!important}}
+  a{color:var(--ai)}
+
+  /* topbar */
+  .topbar{display:flex;align-items:center;gap:16px;padding:12px 22px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(23,37,60,.6),rgba(11,17,28,.2));backdrop-filter:blur(6px);position:sticky;top:0;z-index:40}
+  .brand{display:flex;align-items:center;gap:12px;min-width:0}
+  .mark{width:34px;height:34px;border-radius:9px;flex:none;background:linear-gradient(135deg,var(--ai),var(--violet));
+    display:grid;place-items:center;color:#06121A;font-weight:800;font-family:var(--mono);font-size:15px;
+    box-shadow:0 0 0 1px rgba(61,224,208,.35),0 6px 22px rgba(61,224,208,.18)}
+  .brand h1{font-size:14.5px;margin:0;font-weight:700} .brand .sub{font-size:11px;color:var(--ink-3);margin-top:1px}
+  .tb-spacer{flex:1}
+  .savechip{font-size:11px;color:var(--ink-2);border:1px solid var(--line);padding:6px 11px;border-radius:999px;background:var(--panel);display:flex;align-items:center;gap:7px;white-space:nowrap}
+  .savechip .d{width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .savechip.mem .d{background:var(--delta);box-shadow:0 0 8px var(--delta)}
+  @media(max-width:640px){.savechip .lbl{display:none}}
+
+  /* tabs */
+  .tabs{display:flex;gap:4px;overflow-x:auto;padding:12px 22px 0;border-bottom:1px solid var(--line);background:rgba(11,17,28,.4);position:sticky;top:59px;z-index:30}
+  .tab{flex:none;padding:10px 15px;border:none;background:none;color:var(--ink-3);font-family:var(--jp);font-size:13px;cursor:pointer;
+    border-bottom:2px solid transparent;display:flex;align-items:center;gap:8px;white-space:nowrap}
+  .tab .c{font-family:var(--mono);font-size:11px;background:var(--raised);color:var(--ink-2);border-radius:999px;padding:1px 7px}
+  .tab:hover{color:var(--ink-2)}
+  .tab.on{color:var(--ink);border-bottom-color:var(--ai)} .tab.on .c{background:var(--ai);color:#06121A;font-weight:700}
+
+  .wrap{max-width:1120px;margin:0 auto;padding:22px 22px 60px}
+  @media(max-width:620px){.wrap{padding:16px 13px 44px}}
+
+  /* generic */
+  .card{background:linear-gradient(180deg,var(--panel),var(--bg-2));border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-bottom:16px}
+  .ch{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:15px 18px;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
+  .ch .lt{display:flex;flex-direction:column;gap:3px;min-width:0}
+  .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--ai);text-transform:uppercase}
+  .ch h2{margin:0;font-size:16px;font-weight:700}
+  .ch .meta{font-size:11.5px;color:var(--ink-3)}
+  .row-cta{display:flex;gap:8px;flex-wrap:wrap}
+  .pad{padding:18px}
+  .muted{color:var(--ink-3)}
+  .empty{padding:40px 18px;text-align:center;color:var(--ink-3);font-size:13px}
+  .empty b{color:var(--ink-2);display:block;margin-bottom:6px;font-size:14px}
+
+  .btn{font-family:var(--jp);font-size:12.5px;color:var(--ink-2);background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:9px 13px;cursor:pointer;transition:.14s;display:inline-flex;align-items:center;gap:7px}
+  .btn:hover{border-color:var(--ai-dim);color:var(--ink)}
+  .btn svg{width:14px;height:14px}
+  .btn.pri{color:#06121A;font-weight:700;border:none;background:linear-gradient(135deg,var(--ai),#63EBDD);box-shadow:0 5px 16px rgba(61,224,208,.25)}
+  .btn.pri:hover{transform:translateY(-1px)}
+  .btn.pri:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
+  .btn.sm{padding:6px 10px;font-size:11.5px}
+  .btn.danger:hover{border-color:var(--ret);color:var(--ret)}
+  .btn.icon{padding:7px}
+
+  /* tables */
+  table.dtable{width:100%;border-collapse:collapse;font-size:12.5px}
+  .dtable th{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--ink-3);text-transform:uppercase;text-align:left;padding:11px 14px;border-bottom:1px solid var(--line-soft);white-space:nowrap}
+  .dtable td{padding:10px 14px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
+  .dtable tr:last-child td{border-bottom:none}
+  .dtable td.n,.dtable th.n{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+  .dtable tbody tr:hover{background:rgba(61,224,208,.03)}
+  .scrollx{overflow-x:auto}
+  .media-cell{display:flex;align-items:center;gap:9px}
+  .mlogo{width:24px;height:24px;border-radius:7px;flex:none;display:grid;place-items:center;font-family:var(--mono);font-size:10px;font-weight:700;color:#06121A}
+  .mn{font-size:11px;color:var(--ink-2);white-space:nowrap}
+  .cl{color:var(--ink)} .cl .p{display:block;font-size:10px;color:var(--ink-3);font-family:var(--mono)}
+  .deptpill{font-family:var(--mono);font-size:10px;color:var(--ink-2);border:1px solid var(--line);border-radius:6px;padding:3px 8px;white-space:nowrap}
+
+  .badge{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-family:var(--mono);padding:4px 9px;border-radius:999px;white-space:nowrap;border:1px solid transparent}
+  .badge .bd{width:5px;height:5px;border-radius:50%;background:currentColor}
+  .badge.pending{color:var(--ink-3);border-color:var(--line);background:var(--panel)}
+  .badge.req{color:var(--violet);background:rgba(156,140,247,.12);border-color:rgba(156,140,247,.3)}
+  .badge.ok{color:var(--ok);background:var(--ok-dim);border-color:rgba(55,210,138,.3)}
+  .badge.delta{color:var(--delta);background:var(--delta-dim);border-color:rgba(246,178,61,.35)}
+  .badge.ret{color:var(--ret);background:var(--ret-dim);border-color:rgba(240,120,138,.35)}
+  .badge.scan{color:var(--ai);border-color:var(--ai-dim);background:var(--ai-glow)}
+  .badge.scan .bd{animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
+  .conf{display:inline-flex;align-items:center;gap:8px}
+  .conf .pct{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+  .conf .track{width:52px;height:4px;border-radius:3px;background:var(--raised);overflow:hidden}
+  .conf .fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--ai-dim),var(--ai));transition:width .6s cubic-bezier(.2,.8,.2,1)}
+
+  /* KPI */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+  .kpi{background:linear-gradient(180deg,var(--panel-2),var(--bg-2));border:1px solid var(--line);border-radius:12px;padding:15px}
+  .kpi.accent{border-color:var(--ai-dim);background:linear-gradient(180deg,rgba(61,224,208,.1),var(--bg-2))}
+  .kpi .k{font-size:11px;color:var(--ink-3);margin-bottom:8px}
+  .kpi .big{font-family:var(--mono);font-weight:700;font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:5px}
+  .kpi .big .v{font-size:26px;color:var(--ink)} .kpi.accent .big .v{color:var(--ai)}
+  .kpi .big .u{font-size:12px;color:var(--ink-3)}
+  .kpi .sub{margin-top:7px;font-size:10.5px;color:var(--ink-3);font-family:var(--mono)}
+
+  .funnel{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:18px}
+  @media(max-width:700px){.funnel{grid-template-columns:1fr 1fr}}
+  .fstep{border:1px solid var(--line-soft);border-radius:11px;padding:13px;background:var(--bg-2);position:relative}
+  .fstep .fl{font-size:11px;color:var(--ink-3);margin-bottom:6px}
+  .fstep .fv{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--ink)}
+  .fstep .fu{font-size:10px;color:var(--ink-3);margin-left:3px}
+
+  /* forms */
+  .form{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:18px}
+  @media(max-width:560px){.form{grid-template-columns:1fr}}
+  .field{display:flex;flex-direction:column;gap:6px}
+  .field.full{grid-column:1/-1}
+  .field label{font-size:11px;color:var(--ink-3)}
+  .field input,.field select,.field textarea{font-family:var(--jp);font-size:13px;color:var(--ink);background:var(--bg-2);border:1px solid var(--line);border-radius:9px;padding:9px 11px;width:100%}
+  .field input.num,.field input[type=number]{font-family:var(--mono)}
+  .field textarea{min-height:70px;resize:vertical;font-family:var(--mono);font-size:12px}
+  .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--ai-dim);outline:none}
+  .hint{font-size:10.5px;color:var(--ink-3)}
+
+  /* email drafts */
+  .draft{border:1px solid var(--line);border-radius:12px;background:var(--bg-2);overflow:hidden;margin-bottom:14px}
+  .draft .dh{padding:12px 15px;border-bottom:1px solid var(--line-soft);background:var(--panel);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .draft .to{font-size:12.5px;color:var(--ink);font-weight:600}
+  .draft .to .em{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);font-weight:400;margin-left:6px}
+  .draft .dh .row-cta{margin-left:auto}
+  .draft .body{padding:13px 15px;font-family:var(--mono);font-size:11.5px;color:var(--ink-2);line-height:1.7;white-space:pre-wrap}
+
+  /* approval */
+  .apbtns{display:inline-flex;gap:6px}
+  .apbtn{font-family:var(--jp);font-size:11px;border-radius:7px;padding:6px 11px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink-2)}
+  .apbtn.approve:hover{border-color:var(--ok);color:var(--ok)} .apbtn.return:hover{border-color:var(--ret);color:var(--ret)}
+  .airec{font-family:var(--mono);font-size:10px;color:var(--ai)} .airec.rt{color:var(--ret)}
+  .flagtip{font-size:10.5px;color:var(--delta);margin-top:3px}
+
+  /* metrics */
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;padding:18px;border-top:1px solid var(--line-soft)}
+
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(6,10,18,.72);backdrop-filter:blur(3px);display:none;align-items:flex-start;justify-content:center;z-index:60;padding:40px 16px;overflow-y:auto}
+  .overlay.show{display:flex}
+  .mbox{width:100%;max-width:560px;background:var(--bg-2);border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+  .mbox .mh{display:flex;align-items:center;justify-content:space-between;padding:15px 18px;border-bottom:1px solid var(--line-soft)}
+  .mbox .mh h3{margin:0;font-size:15px}
+  .mbox .mf{display:flex;justify-content:flex-end;gap:8px;padding:14px 18px;border-top:1px solid var(--line-soft)}
+
+  /* toast */
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--panel-2);border:1px solid var(--ai-dim);color:var(--ink);
+    padding:11px 18px;border-radius:10px;font-size:12.5px;z-index:70;opacity:0;transition:.25s;box-shadow:0 12px 30px rgba(0,0,0,.4);display:flex;align-items:center;gap:9px}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .toast .d{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+
+  /* governance */
+  .gov{border:1px solid var(--line);border-radius:var(--radius);background:linear-gradient(180deg,rgba(19,31,51,.55),var(--bg-2));padding:16px 18px;margin-bottom:16px}
+  .gov .gh{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+  .gov .gh .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--violet);border:1px solid rgba(156,140,247,.35);padding:3px 8px;border-radius:5px}
+  .gov .gh .t{font-size:12.5px;color:var(--ink-2)} .gov .gh .t b{color:var(--ink);font-weight:700}
+  .gflow{display:grid;grid-template-columns:repeat(4,1fr);gap:0}
+  @media(max-width:820px){.gflow{grid-template-columns:1fr 1fr}}
+  @media(max-width:460px){.gflow{grid-template-columns:1fr}}
+  .gstep{padding:0 16px;position:relative}
+  .gstep:not(:last-child)::after{content:"→";position:absolute;right:-9px;top:2px;color:var(--ink-3);font-family:var(--mono)}
+  @media(max-width:820px){.gstep:nth-child(2)::after,.gstep:last-child::after{content:""}}
+  .gstep .gn{font-family:var(--mono);font-size:10px;color:var(--ai)} .gstep .gt{font-size:12px;color:var(--ink);font-weight:600;margin:5px 0 4px}
+  .gstep .gd{font-size:10.5px;color:var(--ink-3);line-height:1.6}
+  .footnote{font-size:10.5px;color:var(--ink-3);line-height:1.7;margin-top:8px}
+  .banner{border:1px solid rgba(246,178,61,.35);background:var(--delta-dim);border-radius:11px;padding:11px 14px;font-size:11.5px;color:var(--ink-2);margin-bottom:16px;display:flex;gap:9px;align-items:flex-start}
+  .banner .warnpill{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:var(--delta);border:1px solid rgba(246,178,61,.4);padding:2px 7px;border-radius:5px;flex:none}
+
+  /* PDF import */
+  .mbox.wide{max-width:880px}
+  .dropzone{border:1.5px dashed var(--line);border-radius:12px;padding:22px;text-align:center;color:var(--ink-3);font-size:12.5px;background:var(--bg-2);cursor:pointer;transition:.15s}
+  .dropzone:hover,.dropzone.drag{border-color:var(--ai-dim);color:var(--ink-2);background:rgba(61,224,208,.04)}
+  .dropzone input{display:none}
+  .dropzone .bigt{font-size:13px;color:var(--ink);margin-bottom:4px}
+  .pdfstatus{font-size:11.5px;color:var(--ink-3);margin:12px 2px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .pdfstatus.err{color:var(--delta)}
+  .spin{width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--ai);border-radius:50%;animation:spin .7s linear infinite;display:inline-block;flex:none}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .confpill{font-family:var(--mono);font-size:9px;padding:2px 6px;border-radius:5px;border:1px solid transparent;white-space:nowrap}
+  .confpill.hi{color:var(--ok);background:var(--ok-dim);border-color:rgba(55,210,138,.3)}
+  .confpill.mid{color:var(--delta);background:var(--delta-dim);border-color:rgba(246,178,61,.3)}
+  .confpill.lo{color:var(--ret);background:var(--ret-dim);border-color:rgba(240,120,138,.3)}
+  .rvinput{background:var(--bg-2);border:1px solid var(--line);border-radius:7px;color:var(--ink);padding:6px 8px;font-family:var(--jp);font-size:12px}
+  .rvinput:focus{border-color:var(--ai-dim);outline:none}
+  .rvinput.num{font-family:var(--mono);text-align:right}
+</style>
+
+<div class="topbar">
+  <div class="brand">
+    <div class="mark">A</div>
+    <div><h1>AIX 請求書オートメーション</h1><div class="sub" id="brandSub">株式会社AODAISHO</div></div>
+  </div>
+  <div class="tb-spacer"></div>
+  <div class="savechip" id="saveChip"><span class="d"></span><span class="lbl">自動保存 有効</span></div>
+</div>
+<div class="tabs" id="tabs"></div>
+<div class="wrap" id="view"></div>
+
+<div class="overlay" id="overlay"></div>
+<div class="toast" id="toast"><span class="d"></span><span id="toastMsg"></span></div>
+
+<script>
+/* ============================================================
+   AIX 請求書オートメーション — 単一ファイルの実働アプリ
+   ・自動保存（localStorage、不可環境はメモリ動作）
+   ・請求書CRUD / CSV取込・書出 / JSONバックアップ
+   ・確認依頼メール（mailto・自動送信なし）/ 承認・差戻し
+   ・AI照合（許容差ベース）/ 削減効果の実計算
+   ============================================================ */
+
+const MEDIA = {
+  "Google広告":{bg:"#8AB4F8",ini:"G"}, "Meta広告":{bg:"#5B8DEF",ini:"M"}, "Yahoo!広告":{bg:"#F45B5B",ini:"Y!"},
+  "LINE広告":{bg:"#4FD37A",ini:"L"}, "TikTok広告":{bg:"#9C8CF7",ini:"Tk"}, "X広告":{bg:"#C9D2E0",ini:"X"},
+  "Microsoft広告":{bg:"#5CC8C2",ini:"Ms"}, "その他":{bg:"#7C8BA5",ini:"·"}
+};
+const KEY="aix_ap_v2";
+let persistent=true;
+
+/* ---------- storage ---------- */
+function save(){ try{ localStorage.setItem(KEY,JSON.stringify(S)); persistent=true; }catch(e){ persistent=false; } updateSaveChip(); }
+function loadRaw(){ try{ const r=localStorage.getItem(KEY); return r?JSON.parse(r):null; }catch(e){ persistent=false; return null; } }
+
+/* ---------- defaults / sample ---------- */
+function defaultState(){
+  return {
+    v:2,
+    company:{ name:"株式会社サンプル", accountingEmail:"keiri@example.co.jp" },
+    params:{ minutes:4, aiRate:75, hourly:2500, volume:340, tolerance:0 },
+    depts:[
+      {name:"運用1課", email:"unyo1@example.co.jp"},
+      {name:"運用2課", email:"unyo2@example.co.jp"},
+      {name:"運用3課", email:"unyo3@example.co.jp"}
+    ],
+    ai:{ enabled:true, mode:"auto", endpoint:"", model:"claude-sonnet-4-6", key:"" },
+    invoices:[],
+    seq:1
+  };
+}
+function sampleInvoices(){
+  const s=[
+    ["Google広告","サンライズ広告",1240000,1240000,"運用1課","田中",null],
+    ["Meta広告","サンライズ広告",912300,890100,"運用1課","田中",null],
+    ["Yahoo!広告","みどり不動産",684500,684500,"運用2課","佐藤",null],
+    ["LINE広告","ハルカ製菓",333000,333000,"運用2課","鈴木",null],
+    ["TikTok広告","ネクストフィット",461500,458000,"運用3課","山本",null],
+    ["X広告","みどり不動産",129800,129800,"運用2課","佐藤",null],
+    ["Microsoft広告","グランデ商事",76400,76400,"運用1課","高橋",null],
+    ["Google広告","ハルカ製菓",2015000,2015000,"運用2課","鈴木",null],
+    ["Meta広告","グランデ商事",540000,540000,"運用1課","高橋",null],
+    ["Yahoo!広告","ネクストフィット",303400,303400,"運用3課","山本","媒体アカウントIDが前月と不一致。クライアント配分の確認が必要。"]
+  ];
+  return s.map((r,i)=>({
+    id:i+1, media:r[0], client:r[1], period:"2026-06", inv:r[2], act:r[3],
+    dept:r[4], owner:r[5], flag:r[6], pdf:null,
+    requested:false, approval:"pending", note:"", decidedAt:null,
+    sent:false, reconciled:"none", diff:null
+  }));
+}
+
+/* ---------- initial state is bootstrapped at the bottom, after helpers ---------- */
+let S;
+
+/* ---------- helpers ---------- */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const cleanKey=s=>String(s||"").replace(/[\u200B-\u200D\uFEFF]/g,"").replace(/^["'\s]+|["'\s]+$/g,"").trim();
+const inFrame=()=>{ try{ return window.top!==window.self; }catch(e){ return true; } };
+const yen=n=>"¥"+Number(n||0).toLocaleString("ja-JP");
+const mediaKey=m=>MEDIA[m]?m:"その他";
+const logo=m=>{const k=mediaKey(m);return `<span class="mlogo" style="background:${MEDIA[k].bg}">${MEDIA[k].ini}</span>`;};
+function toast(msg){ $("#toastMsg").textContent=msg; const t=$("#toast"); t.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),2200); }
+function updateSaveChip(){ const c=$("#saveChip"); if(persistent){ c.className="savechip"; c.querySelector(".lbl").textContent="自動保存 有効"; } else { c.className="savechip mem"; c.querySelector(".lbl").textContent="メモリのみ（保存不可）"; } }
+function deptEmail(name){ const d=S.depts.find(x=>x.name===name); return d?d.email:S.company.accountingEmail; }
+function downloadFile(name,text,mime){ const b=new Blob([text],{type:mime||"text/plain;charset=utf-8"}); const u=URL.createObjectURL(b); const a=document.createElement("a"); a.href=u; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(u),500); }
+
+/* ---------- effect calc (pure) ---------- */
+function effect(){
+  const p=S.params;
+  const hours = p.volume * p.minutes * (p.aiRate/100) / 60;
+  const money = hours * p.hourly;
+  return { hours, money };
+}
+
+/* ---------- CSV (pure) ---------- */
+function parseCSV(text){
+  const rows=[]; let row=[], cur="", q=false;
+  text=text.replace(/\r\n?/g,"\n");
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(q){ if(ch==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=ch; }
+    else { if(ch==='"') q=true; else if(ch===','){ row.push(cur); cur=""; } else if(ch==='\n'){ row.push(cur); rows.push(row); row=[]; cur=""; } else cur+=ch; }
+  }
+  if(cur!==""||row.length){ row.push(cur); rows.push(row); }
+  return rows.filter(r=>r.length && r.some(c=>c.trim()!==""));
+}
+function csvCell(v){ v=String(v==null?"":v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+function toCSV(headers,rows){ return [headers.map(csvCell).join(","), ...rows.map(r=>r.map(csvCell).join(","))].join("\n"); }
+
+/* ---------- status derivation ---------- */
+function statusBadge(i){
+  if(i.reconciled==="ok") return `<span class="badge ok"><span class="bd"></span>照合OK</span>`;
+  if(i.reconciled==="diff") return `<span class="badge delta"><span class="bd"></span>差異</span>`;
+  if(i.approval==="approved") return `<span class="badge ok"><span class="bd"></span>承認</span>`;
+  if(i.approval==="returned") return `<span class="badge ret"><span class="bd"></span>差戻し</span>`;
+  if(i.requested) return `<span class="badge req"><span class="bd"></span>確認依頼中</span>`;
+  return `<span class="badge pending"><span class="bd"></span>未処理</span>`;
+}
+function aiSuggest(i){ return i.flag ? "return" : "approve"; }
+
+/* ============================================================
+   TABS + ROUTER
+   ============================================================ */
+const TABS=[
+  {id:"dash",label:"ダッシュボード"},
+  {id:"reg",label:"請求書"},
+  {id:"req",label:"確認依頼"},
+  {id:"appr",label:"部署確認"},
+  {id:"rec",label:"経理照合"},
+  {id:"set",label:"設定"}
+];
+let tab="dash";
+function counts(){
+  return {
+    reg:S.invoices.length,
+    req:S.invoices.filter(i=>i.requested && i.approval==="pending").length,
+    appr:S.invoices.filter(i=>i.requested && i.approval==="pending").length,
+    rec:S.invoices.filter(i=>i.approval==="approved" && i.reconciled==="none").length
+  };
+}
+function renderTabs(){
+  const c=counts();
+  $("#tabs").innerHTML=TABS.map(t=>{
+    const badge = (t.id==="req"&&c.req)||(t.id==="appr"&&c.appr)||(t.id==="rec"&&c.rec)||(t.id==="reg"&&c.reg);
+    const cnt = t.id==="reg"?c.reg : t.id==="req"?c.req : t.id==="appr"?c.appr : t.id==="rec"?c.rec : 0;
+    return `<button class="tab ${tab===t.id?"on":""}" data-tab="${t.id}">${t.label}${badge?`<span class="c">${cnt}</span>`:""}</button>`;
+  }).join("");
+  $("#tabs").querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; render(); });
+}
+function render(){ $("#brandSub").textContent=S.company.name||"株式会社AODAISHO"; renderTabs(); updateSaveChip();
+  const v=$("#view");
+  if(tab==="dash") viewDash(v);
+  else if(tab==="reg") viewReg(v);
+  else if(tab==="req") viewReq(v);
+  else if(tab==="appr") viewAppr(v);
+  else if(tab==="rec") viewRec(v);
+  else if(tab==="set") viewSet(v);
+}
+
+/* ============================================================
+   VIEW: ダッシュボード
+   ============================================================ */
+function viewDash(v){
+  const e=effect();
+  const inv=S.invoices;
+  const f={reg:inv.length, req:inv.filter(i=>i.requested).length, appr:inv.filter(i=>i.approval==="approved").length,
+           sent:inv.filter(i=>i.sent).length, rec:inv.filter(i=>i.reconciled!=="none").length};
+  const diffs=inv.filter(i=>i.reconciled==="diff");
+  const diffSum=diffs.reduce((s,i)=>s+Math.abs(i.diff||0),0);
+  v.innerHTML=`
+  ${persistent?"":`<div class="banner"><span class="warnpill">注意</span><div>この環境ではブラウザ保存が使えないため<b>メモリ動作</b>です。ファイルをダウンロードしてブラウザで開くと、入力内容が自動保存されます。設定＞バックアップからJSON書出も可能です。</div></div>`}
+  <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">Overview</span><h2>削減効果（月間見込み）</h2>
+    <span class="meta">設定のパラメータで自動計算。初期値は提案前提（4分/件・代替率75%・時給¥2,500・340件）。</span></div>
+    <div class="row-cta"><button class="btn sm" data-goto="set">パラメータを調整</button></div></div>
+    <div class="kpis pad">
+      <div class="kpi accent"><div class="k">削減時間</div><div class="big"><span class="v num">${e.hours.toFixed(1)}</span><span class="u">h/月</span></div>
+        <div class="sub">${S.params.volume}件 × ${S.params.minutes}分 × ${S.params.aiRate}%</div></div>
+      <div class="kpi"><div class="k">削減額（人件費換算）</div><div class="big"><span class="u" style="font-size:13px">約</span><span class="v num">${Math.round(e.money).toLocaleString("ja-JP")}</span><span class="u">円/月</span></div>
+        <div class="sub">${e.hours.toFixed(1)}h × ¥${S.params.hourly.toLocaleString("ja-JP")}</div></div>
+      <div class="kpi"><div class="k">年間換算</div><div class="big"><span class="u" style="font-size:13px">約</span><span class="v num">${Math.round(e.money*12/10000).toLocaleString("ja-JP")}</span><span class="u">万円/年</span></div>
+        <div class="sub">月間 × 12</div></div>
+      <div class="kpi"><div class="k">検出した差異（登録分）</div><div class="big"><span class="v num" style="color:${diffs.length?'var(--delta)':'var(--ink)'}">${diffs.length}</span><span class="u">件 / ${yen(diffSum)}</span></div>
+        <div class="sub">過払い・差異の早期検出</div></div>
+    </div>
+  </div>
+
+  <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">Pipeline</span><h2>処理状況</h2>
+    <span class="meta">受領〜経理照合までの各段階の件数。</span></div></div>
+    <div class="funnel">
+      <div class="fstep"><div class="fl">登録（受領）</div><div class="fv num">${f.reg}<span class="fu">件</span></div></div>
+      <div class="fstep"><div class="fl">確認依頼 済</div><div class="fv num">${f.req}<span class="fu">件</span></div></div>
+      <div class="fstep"><div class="fl">承認 済</div><div class="fv num">${f.appr}<span class="fu">件</span></div></div>
+      <div class="fstep"><div class="fl">経理送付 済</div><div class="fv num">${f.sent}<span class="fu">件</span></div></div>
+      <div class="fstep"><div class="fl">照合 済</div><div class="fv num">${f.rec}<span class="fu">件</span></div></div>
+    </div>
+  </div>
+
+  <div class="gov"><div class="gh"><span class="lbl">GOVERNANCE</span>
+    <span class="t"><b>社員はAIに触れず、本ツールのみ操作。</b> 抽出・照合はAPI経由で処理し、機密情報の直接入力は発生しません。</span></div>
+    <div class="gflow">
+      <div class="gstep"><div class="gn">01</div><div class="gt">社内ツールのみ操作</div><div class="gd">受領・確認画面だけを利用。AIサービスへ直接アクセスしない。</div></div>
+      <div class="gstep"><div class="gn">02</div><div class="gt">入力内容を事前に制御</div><div class="gd">承認/差戻しの選択のみ受付。自由入力を抑え、取扱範囲を固定化。</div></div>
+      <div class="gstep"><div class="gn">03</div><div class="gt">システムがAPI経由で処理</div><div class="gd">読取・照合・メール生成はシステム側で実行。</div></div>
+      <div class="gstep"><div class="gn">04</div><div class="gt">結果だけを業務に返却</div><div class="gd">一覧・確認依頼・照合結果など必要な成果だけを返す。</div></div>
+    </div>
+    <div class="footnote">※ PDFの項目抽出はAI抽出（設定＞AI抽出）で実行し、未接続・失敗時は内蔵の推定に自動フォールバックします。抽出結果は必ず確認テーブルで確認・修正してから登録します。確認依頼メール（mailto）・承認/差戻し・照合・書出は本アプリで実動作。メールの受信自動取込は本番のAPI連携で有効化します。数値はケースB（広告代理店・45名／経理17h・約4.4万円）の前提に準拠。</div>
+  </div>`;
+  v.querySelectorAll("[data-goto]").forEach(b=>b.onclick=()=>{ tab=b.dataset.goto; render(); });
+}
+
+/* ============================================================
+   VIEW: 請求書（登録）
+   ============================================================ */
+function viewReg(v){
+  const inv=S.invoices;
+  v.innerHTML=`
+  <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">Register</span><h2>請求書 一覧</h2>
+    <span class="meta">受領した請求書を登録・管理。CSVで一括取込／書出できます。</span></div>
+    <div class="row-cta">
+      <button class="btn pri" id="rAdd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>新規登録</button>
+      <button class="btn" id="rPdf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>PDF取込</button>
+      <button class="btn" id="rImport">CSV取込</button>
+      <button class="btn" id="rExport">CSV書出</button>
+      <button class="btn" id="rSample">サンプル受信を取込</button>
+      <button class="btn danger" id="rClear">全消去</button>
+    </div></div>
+    ${inv.length? `<div class="scrollx"><table class="dtable">
+      <thead><tr><th>媒体</th><th>クライアント／期間</th><th>担当課</th><th class="n">請求額</th><th class="n">実費</th><th>状態</th><th></th></tr></thead>
+      <tbody>${inv.map(i=>`<tr>
+        <td><div class="media-cell">${logo(i.media)}<span class="mn">${esc(i.media)}</span></div></td>
+        <td><span class="cl">${esc(i.client)}<span class="p">${esc(i.period)}</span></span></td>
+        <td><span class="deptpill">${esc(i.dept)}${i.owner?"・"+esc(i.owner):""}</span></td>
+        <td class="n">${yen(i.inv)}</td>
+        <td class="n" ${i.act==null?'style="color:var(--ink-3)"':""}>${i.act==null?"—":yen(i.act)}</td>
+        <td>${statusBadge(i)}</td>
+        <td class="n"><button class="btn sm" data-edit="${i.id}">編集</button> <button class="btn sm icon danger" data-del="${i.id}" title="削除">✕</button></td>
+      </tr>`).join("")}</tbody></table></div>`
+    : `<div class="empty"><b>まだ請求書がありません</b>「新規登録」またはCSV取込、あるいは「サンプル受信を取込」でデータを追加してください。</div>`}
+  </div>
+  <p class="footnote">PDF取込：請求書PDFから媒体・請求額・期間をブラウザ内で推定し、確認・修正して登録します（テキストPDF対応。読み込めない環境ではテキスト貼り付けに切替）。CSV列：媒体, クライアント, 期間, 請求額, 実費, 担当課, 担当者（先頭行はヘッダ）。実費が空の請求書は経理照合の画面で入力できます。</p>`;
+  $("#rAdd").onclick=()=>invoiceModal(null);
+  $("#rPdf").onclick=pdfImportModal;
+  $("#rImport").onclick=importModal;
+  $("#rExport").onclick=exportInvoicesCSV;
+  $("#rSample").onclick=()=>{ if(S.invoices.length && !confirm("既存データにサンプル10件を追加します。よろしいですか？")) return; const add=sampleInvoices(); add.forEach(a=>{a.id=S.seq++;}); S.invoices=S.invoices.concat(add); save(); toast("サンプル10件を取込みました"); render(); };
+  $("#rClear").onclick=()=>{ if(confirm("すべての請求書を削除します。よろしいですか？（設定は保持）")){ S.invoices=[]; save(); toast("全件を削除しました"); render(); } };
+  v.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>invoiceModal(+b.dataset.edit));
+  v.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ const id=+b.dataset.del; const i=S.invoices.find(x=>x.id===id); if(confirm(`「${i.media}／${i.client}」を削除しますか？`)){ S.invoices=S.invoices.filter(x=>x.id!==id); save(); render(); } });
+}
+
+function invoiceModal(id){
+  const i = id? S.invoices.find(x=>x.id===id) : {media:"Google広告",client:"",period:"2026-06",inv:"",act:"",dept:S.depts[0]?.name||"",owner:"",flag:""};
+  const mopts=Object.keys(MEDIA).map(m=>`<option ${i.media===m?"selected":""}>${m}</option>`).join("");
+  const dopts=S.depts.map(d=>`<option ${i.dept===d.name?"selected":""}>${esc(d.name)}</option>`).join("");
+  openModal(`${id?"請求書を編集":"請求書を新規登録"}`,`
+    <div class="form">
+      <div class="field"><label>媒体</label><select id="fMedia">${mopts}</select></div>
+      <div class="field"><label>担当課</label><select id="fDept">${dopts}</select></div>
+      <div class="field"><label>クライアント</label><input id="fClient" value="${esc(i.client)}" placeholder="例：サンライズ広告"></div>
+      <div class="field"><label>対象期間</label><input id="fPeriod" value="${esc(i.period)}" placeholder="2026-06"></div>
+      <div class="field"><label>請求額（円）</label><input id="fInv" type="number" value="${i.inv}" placeholder="1240000"></div>
+      <div class="field"><label>運用実績・実費（円／任意）</label><input id="fAct" type="number" value="${i.act==null?"":i.act}" placeholder="未確定なら空欄"></div>
+      <div class="field"><label>担当者（任意）</label><input id="fOwner" value="${esc(i.owner||"")}" placeholder="例：田中"></div>
+      <div class="field"><label>要確認フラグ（任意）</label><input id="fFlag" value="${esc(i.flag||"")}" placeholder="配分要確認などの注記"></div>
+    </div>`,
+    id?"保存":"登録", ()=>{
+      const inv=+$("#fInv").value||0; const actv=$("#fAct").value.trim();
+      const data={ media:$("#fMedia").value, dept:$("#fDept").value, client:$("#fClient").value.trim(),
+        period:$("#fPeriod").value.trim()||"2026-06", inv, act: actv===""?null:(+actv||0),
+        owner:$("#fOwner").value.trim(), flag:$("#fFlag").value.trim()||null };
+      if(!data.client){ toast("クライアント名を入力してください"); return false; }
+      if(id){ Object.assign(i,data); }
+      else { S.invoices.push({ id:S.seq++, ...data, pdf:null, requested:false, approval:"pending", note:"", decidedAt:null, sent:false, reconciled:"none", diff:null }); }
+      save(); toast(id?"保存しました":"登録しました"); render(); return true;
+    });
+}
+
+function importModal(){
+  openModal("CSV取込",`
+    <div class="pad" style="padding-bottom:0">
+      <div class="field"><label>CSVを貼り付け</label><textarea id="csvText" placeholder="媒体,クライアント,期間,請求額,実費,担当課,担当者&#10;Google広告,サンライズ広告,2026-06,1240000,1240000,運用1課,田中"></textarea></div>
+      <p class="hint" style="margin:10px 0">またはファイルを選択：<input type="file" id="csvFile" accept=".csv,text/csv"></p>
+    </div>`,
+    "取込む", ()=>{
+      const doImport=(text)=>{
+        const rows=parseCSV(text); if(!rows.length){ toast("データがありません"); return; }
+        let head=rows[0].map(s=>s.trim()); let start=1;
+        const map={"媒体":"media","クライアント":"client","期間":"period","請求額":"inv","実費":"act","担当課":"dept","担当者":"owner",
+                   "media":"media","client":"client","period":"period","inv":"inv","act":"act","dept":"dept","owner":"owner"};
+        let idx={};
+        const looksHeader=head.some(h=>map[h]);
+        if(looksHeader){ head.forEach((h,k)=>{ if(map[h]) idx[map[h]]=k; }); }
+        else { idx={media:0,client:1,period:2,inv:3,act:4,dept:5,owner:6}; start=0; }
+        let n=0;
+        for(let r=start;r<rows.length;r++){ const c=rows[r];
+          const get=f=>idx[f]!=null?(c[idx[f]]||"").trim():"";
+          const client=get("client"); if(!client) continue;
+          const actv=get("act");
+          S.invoices.push({ id:S.seq++, media:get("media")||"その他", client, period:get("period")||"2026-06",
+            inv:+get("inv").replace(/[^\d.-]/g,"")||0, act:actv===""?null:(+actv.replace(/[^\d.-]/g,"")||0),
+            dept:get("dept")||(S.depts[0]?.name||""), owner:get("owner"), flag:null, pdf:null,
+            requested:false, approval:"pending", note:"", decidedAt:null, sent:false, reconciled:"none", diff:null });
+          n++;
+        }
+        save(); toast(`${n}件を取込みました`); render();
+      };
+      const file=$("#csvFile").files[0];
+      if(file){ const fr=new FileReader(); fr.onload=()=>{ doImport(fr.result); closeModal(); }; fr.readAsText(file,"utf-8"); return false; }
+      const text=$("#csvText").value.trim(); if(!text){ toast("CSVを入力してください"); return false; }
+      doImport(text); return true;
+    });
+}
+function exportInvoicesCSV(){
+  if(!S.invoices.length){ toast("書き出す請求書がありません"); return; }
+  const head=["媒体","クライアント","期間","請求額","実費","担当課","担当者","状態","承認","照合","差異"];
+  const rows=S.invoices.map(i=>[i.media,i.client,i.period,i.inv,i.act==null?"":i.act,i.dept,i.owner||"",
+    i.requested?"依頼済":"未依頼", i.approval, i.reconciled, i.diff==null?"":i.diff]);
+  downloadFile(`請求書一覧_${today()}.csv`, "\ufeff"+toCSV(head,rows), "text/csv;charset=utf-8");
+  toast("CSVを書き出しました");
+}
+function today(){ const d=new Date(); return d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0"); }
+
+/* ============================================================
+   VIEW: 確認依頼（mailto）
+   ============================================================ */
+function viewReq(v){
+  const targets=S.invoices.filter(i=>i.approval==="pending");
+  const groups=S.depts.map(d=>({dept:d, items:targets.filter(i=>i.dept===d.name)})).filter(g=>g.items.length);
+  v.innerHTML=`
+  <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">Request</span><h2>確認依頼メール</h2>
+    <span class="meta">担当課ごとに確認依頼を自動生成。メール下書きを開く／本文コピーで、担当者が自分のメールから送信します（自動送信はしません）。</span></div>
+    ${groups.length?`<div class="row-cta"><button class="btn" id="markAll">全件を依頼済みにする</button></div>`:""}</div>
+    ${groups.length? `<div class="pad">${groups.map((g,gi)=>{
+      const body=mailBody(g.dept.name,g.items);
+      const subj=`【要確認】${g.items[0].period} 媒体費請求 ${g.items.length}件`;
+      return `<div class="draft">
+        <div class="dh"><div class="to">To：${esc(g.dept.name)} <span class="em">${esc(g.dept.email)}</span></div>
+          <div class="row-cta">
+            <a class="btn sm pri" href="mailto:${encodeURIComponent(g.dept.email)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}" data-sent="${gi}">メール作成</a>
+            <button class="btn sm" data-copy="${gi}">本文コピー</button>
+          </div></div>
+        <div class="body" id="body${gi}">件名：${esc(subj)}\n\n${esc(body)}</div>
+      </div>`;
+    }).join("")}</div>`
+    : `<div class="empty"><b>確認依頼の対象がありません</b>未処理の請求書がないか、すべて承認/差戻し済みです。</div>`}
+  </div>`;
+  if(groups.length){
+    $("#markAll").onclick=()=>{ targets.forEach(i=>i.requested=true); save(); toast("確認依頼を記録しました"); render(); };
+    v.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>{ const gi=+b.dataset.copy; const txt=$("#body"+gi).innerText; navigator.clipboard?.writeText(txt).then(()=>toast("本文をコピーしました"),()=>toast("コピーできませんでした")); });
+    v.querySelectorAll("[data-sent]").forEach(a=>a.onclick=()=>{ const gi=+a.dataset.sent; groups[gi].items.forEach(i=>i.requested=true); save(); setTimeout(render,300); });
+  }
+}
+function mailBody(dept,items){
+  const lines=items.map((i,k)=>`  ${k+1}. ${i.media}／${i.client}（${i.period}）：${yen(i.inv)}`).join("\n");
+  return `${dept} ご担当者さま
+
+2026年6月分の媒体費請求について、配信実績とご確認のうえ、
+各請求の「承認」または「差戻し」を、社内ツール『AIX 請求書オートメーション』の
+［部署確認］画面よりご対応ください。
+
+対象請求（${items.length}件）：
+${lines}
+
+差異・不明点がある場合は差戻しを選択し、媒体照会に回してください。
+※ 本メールは経理オートメーションが自動生成しています。`;
+}
+
+/* ============================================================
+   VIEW: 部署確認（承認/差戻し）
+   ============================================================ */
+function viewAppr(v){
+  const targets=S.invoices.filter(i=>i.approval==="pending");
+  v.innerHTML=`
+  <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">Approve</span><h2>部署確認（確認スキーム）</h2>
+    <span class="meta">各請求を承認または差戻し。AIが推奨を提示します（要確認フラグは差戻し推奨）。</span></div>
+    ${targets.length?`<div class="row-cta"><button class="btn" id="aiAuto">AI推奨どおり一括処理</button></div>`:""}</div>
+    ${targets.length? `<div class="scrollx"><table class="dtable">
+      <thead><tr><th>媒体</th><th>クライアント</th><th class="n">請求額</th><th>担当課</th><th>AI推奨</th><th>判定</th></tr></thead>
+      <tbody>${targets.map(i=>{
+        const rec=aiSuggest(i);
+        return `<tr>
+          <td><div class="media-cell">${logo(i.media)}<span class="mn">${esc(i.media)}</span></div></td>
+          <td><span class="cl">${esc(i.client)}</span></td>
+          <td class="n">${yen(i.inv)}</td>
+          <td><span class="deptpill">${esc(i.dept)}</span></td>
+          <td>${rec==="return"?`<span class="airec rt">差戻し推奨</span>${i.flag?`<div class="flagtip">${esc(i.flag)}</div>`:""}`:`<span class="airec">承認推奨</span>`}</td>
+          <td><span class="apbtns"><button class="apbtn approve" data-ap="${i.id}" data-v="approved">承認</button><button class="apbtn return" data-ap="${i.id}" data-v="returned">差戻し</button></span></td>
+        </tr>`;
+      }).join("")}</tbody></table></div>`
+    : `<div class="empty"><b>確認待ちの請求書はありません</b>［確認依頼］でメールを送るか、［請求書］で登録してください。</div>`}
+  </div>
+  <p class="footnote">承認された請求書は［経理照合］に進み、差戻しは媒体照会（対象外）として保留されます。</p>`;
+  if(targets.length){
+    $("#aiAuto").onclick=()=>{ targets.forEach(i=>{ i.approval=aiSuggest(i)==="return"?"returned":"approved"; i.requested=true; i.decidedAt=Date.now(); }); save(); toast("AI推奨で一括処理しました"); render(); };
+    v.querySelectorAll("[data-ap]").forEach(b=>b.onclick=()=>{ const i=S.invoices.find(x=>x.id===+b.dataset.ap); i.approval=b.dataset.v; i.requested=true; i.decidedAt=Date.now(); save(); render(); });
+  }
+}
+
+/* ============================================================
+   VIEW: 経理照合
+   ============================================================ */
+function viewRec(v){
+  const set=S.invoices.filter(i=>i.approval==="approved");
+  const e=effect();
+  const done=set.filter(i=>i.reconciled!=="none");
+  const okC=set.filter(i=>i.reconciled==="ok").length;
+  const dlC=set.filter(i=>i.reconciled==="diff").length;
+  v.innerHTML=`
+  <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">Reconcile</span><h2>経理でAI照合</h2>
+    <span class="meta">承認済みの請求額を運用実績（実費）と突合。許容差（現在 ${yen(S.params.tolerance)}）を超える差異を検出します。</span></div>
+    <div class="row-cta">
+      <button class="btn" id="recExport">経理へCSV書出</button>
+      <button class="btn pri" id="recRun" ${set.length?"":"disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>AI一括照合を実行</button>
+    </div></div>
+    ${set.length? `<div class="scrollx"><table class="dtable">
+      <thead><tr><th>媒体</th><th>クライアント</th><th class="n">請求額</th><th class="n">実費</th><th class="n">差異</th><th style="text-align:right">AI照合</th></tr></thead>
+      <tbody id="recbody">${set.map(i=>{
+        const d=i.act==null?null:i.inv-i.act;
+        return `<tr data-rid="${i.id}">
+          <td><div class="media-cell">${logo(i.media)}<span class="mn">${esc(i.media)}</span></div></td>
+          <td><span class="cl">${esc(i.client)}</span></td>
+          <td class="n">${yen(i.inv)}</td>
+          <td class="n">${i.act==null?`<input type="number" class="recAct" data-act="${i.id}" placeholder="実費入力" style="width:110px;font-family:var(--mono);background:var(--bg-2);border:1px solid var(--line);border-radius:7px;color:var(--ink);padding:5px 8px">`:`<span style="color:var(--ink-3)">${yen(i.act)}</span>`}</td>
+          <td class="n" data-d style="${i.reconciled==='none'?'visibility:hidden;':''}color:${d?'var(--delta)':'var(--ink-3)'}">${d==null?"—":(d?(d>0?'+':'−')+yen(Math.abs(d)).slice(1):'±0')}</td>
+          <td style="text-align:right">${i.reconciled==='none'?`<span class="badge pending"><span class="bd"></span>未照合</span>`:statusBadge(i)}</td>
+        </tr>`;
+      }).join("")}</tbody></table></div>
+      <div class="metrics">
+        <div class="kpi accent"><div class="k">今月の削減時間</div><div class="big"><span class="v num" id="mH">${e.hours.toFixed(1)}</span><span class="u">h/月</span></div>
+          <div class="sub">${S.params.volume}件 × ${S.params.minutes}分 × ${S.params.aiRate}%</div></div>
+        <div class="kpi"><div class="k">削減額</div><div class="big"><span class="u" style="font-size:13px">約</span><span class="v num">${Math.round(e.money).toLocaleString("ja-JP")}</span><span class="u">円/月</span></div>
+          <div class="sub">${e.hours.toFixed(1)}h × ¥${S.params.hourly.toLocaleString("ja-JP")}</div></div>
+        <div class="kpi"><div class="k">照合結果（承認分）</div><div class="big"><span class="v num" id="mOk" style="color:var(--ok)">${okC}</span><span class="u">OK</span> <span class="v num" id="mDl" style="color:var(--delta);font-size:20px">${dlC}</span><span class="u">差異</span></div>
+          <div class="sub">${done.length}/${set.length} 件 照合済</div></div>
+      </div>`
+    : `<div class="empty"><b>照合対象（承認済み）がありません</b>［部署確認］で承認するとここに表示されます。</div>`}
+  </div>`;
+  $("#recExport").onclick=exportAccountingCSV;
+  const runBtn=$("#recRun");
+  if(runBtn && set.length){
+    v.querySelectorAll(".recAct").forEach(inp=>inp.onchange=()=>{ const i=S.invoices.find(x=>x.id===+inp.dataset.act); const val=inp.value.trim(); i.act=val===""?null:(+val||0); save(); });
+    runBtn.onclick=()=>reconcileRun(set);
+  }
+}
+function reconcileRun(set){
+  // ensure act present
+  const missing=set.filter(i=>i.act==null);
+  if(missing.length){ toast(`実費が未入力の請求が${missing.length}件あります`); }
+  const btn=$("#recRun"); btn.disabled=true; btn.innerHTML='<span class="num">照合中…</span>';
+  const rows=[...$("#recbody").children];
+  const reduce=matchMedia("(prefers-reduced-motion:reduce)").matches;
+  rows.forEach((row,idx)=>{
+    const i=set[idx];
+    setTimeout(()=>{ const st=row.lastElementChild; st.innerHTML='<span class="badge scan"><span class="bd"></span>照合中</span>'; }, reduce?0:idx*120);
+    setTimeout(()=>{
+      const st=row.lastElementChild; const dcell=row.querySelector("[data-d]");
+      if(i.act==null){ i.reconciled="none"; st.innerHTML='<span class="badge pending"><span class="bd"></span>実費待ち</span>'; return; }
+      const d=i.inv-i.act; i.diff=d;
+      dcell.style.visibility="visible"; dcell.style.color=d?"var(--delta)":"var(--ink-3)";
+      dcell.textContent = d?(d>0?'+':'−')+yen(Math.abs(d)).slice(1):'±0';
+      i.reconciled = Math.abs(d)>S.params.tolerance ? "diff":"ok";
+      st.innerHTML=statusBadge(i);
+    }, reduce?0:idx*120+340);
+  });
+  setTimeout(()=>{
+    save();
+    const okC=set.filter(i=>i.reconciled==="ok").length, dlC=set.filter(i=>i.reconciled==="diff").length;
+    if($("#mOk")) $("#mOk").textContent=okC; if($("#mDl")) $("#mDl").textContent=dlC;
+    btn.disabled=false; btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg> 再照合';
+    toast(`照合完了：OK ${okC}件／差異 ${dlC}件`);
+    renderTabs();
+  }, reduce?0:rows.length*120+520);
+}
+function exportAccountingCSV(){
+  const set=S.invoices.filter(i=>i.approval==="approved");
+  if(!set.length){ toast("送付対象（承認済み）がありません"); return; }
+  const head=["媒体","クライアント","期間","請求額","実費","差異","照合","担当課"];
+  const rows=set.map(i=>[i.media,i.client,i.period,i.inv,i.act==null?"":i.act,i.diff==null?"":i.diff,
+    i.reconciled==="ok"?"OK":i.reconciled==="diff"?"差異":"未照合",i.dept]);
+  set.forEach(i=>i.sent=true); save();
+  downloadFile(`経理送付_${today()}.csv`, "\ufeff"+toCSV(head,rows), "text/csv;charset=utf-8");
+  toast(`${set.length}件を経理へ書き出しました`); renderTabs();
+}
+
+/* ============================================================
+   VIEW: 設定
+   ============================================================ */
+function viewSet(v){
+  const p=S.params;
+  v.innerHTML=`
+  <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">Settings</span><h2>会社・削減パラメータ</h2>
+    <span class="meta">貴社の実数値に合わせて調整すると、削減効果が自動で再計算されます。</span></div>
+    <div class="row-cta"><button class="btn pri" id="setSave">保存</button></div></div>
+    <div class="form">
+      <div class="field"><label>会社名</label><input id="sName" value="${esc(S.company.name)}"></div>
+      <div class="field"><label>経理 宛先メール</label><input id="sKeiri" value="${esc(S.company.accountingEmail)}"></div>
+      <div class="field"><label>1件あたり所要時間（分）</label><input id="sMin" type="number" value="${p.minutes}"></div>
+      <div class="field"><label>AI代替率（%）</label><input id="sRate" type="number" value="${p.aiRate}"></div>
+      <div class="field"><label>人件費単価（時給・円）</label><input id="sHour" type="number" value="${p.hourly}"></div>
+      <div class="field"><label>月間処理件数（見込み）</label><input id="sVol" type="number" value="${p.volume}"></div>
+      <div class="field"><label>照合の許容差（円）</label><input id="sTol" type="number" value="${p.tolerance}"><span class="hint">差異がこの額以下なら「照合OK」扱い。</span></div>
+    </div>
+  </div>
+
+  <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">AI Extraction</span><h2>AI抽出（PDF読取）</h2>
+    <span class="meta">PDF取込時に、AIが媒体・請求額・期間・広告主を抽出します。未接続・失敗時は内蔵の推定に自動フォールバック。</span></div>
+    <div class="row-cta"><button class="btn" id="aiTest">接続テスト</button><button class="btn pri" id="aiSave">保存</button></div></div>
+    <div class="form">
+      <div class="field"><label>AI抽出を使う</label><select id="aiEnabled"><option value="1" ${S.ai.enabled?"selected":""}>有効</option><option value="0" ${!S.ai.enabled?"selected":""}>無効</option></select></div>
+      <div class="field"><label>接続モード</label><select id="aiMode">
+        <option value="auto" ${S.ai.mode==="auto"?"selected":""}>自動（Claude.ai内で動作・キー不要）</option>
+        <option value="gemini" ${S.ai.mode==="gemini"?"selected":""}>Gemini API（キー使用）</option>
+        <option value="custom" ${S.ai.mode==="custom"?"selected":""}>社内API（プロキシ・推奨）</option>
+        <option value="anthropic" ${S.ai.mode==="anthropic"?"selected":""}>Anthropic API（キー使用）</option>
+      </select></div>
+      <div class="field full"><label>エンドポイントURL（社内API／Anthropic互換）</label><input id="aiEndpoint" value="${esc(S.ai.endpoint)}" placeholder="https://your-proxy.example.co.jp/extract"><span class="hint">Geminiは公式エンドポイントを自動使用（この欄は不要）。</span></div>
+      <div class="field"><label>モデル名（Anthropic／Gemini）</label><input id="aiModel" value="${esc(S.ai.model)}" placeholder="claude-sonnet-4-6 / gemini-2.5-flash"></div>
+      <div class="field"><label>APIキー（Gemini／Anthropic）</label><input id="aiKey" type="password" value="${esc(S.ai.key)}" placeholder="Geminiキーは AIza… で始まります"><span class="hint">キーはこのブラウザに保存されます。Geminiは x-goog-api-key ヘッダで送信（URLには載せません）。本番は社内プロキシでキーをサーバ側保管してください。</span></div>
+    </div>
+    <div class="footnote" style="padding:0 18px 16px"><b>社内API（プロキシ）の入出力契約：</b>
+      <span class="num" style="white-space:pre-wrap;display:block;margin:6px 0;color:var(--ink-3)">POST {エンドポイント}
+Request : { "text": "請求書テキスト", "filename": "invoice.pdf" }
+Response: { "media": "...", "client": "...", "amount": 1240000, "period": "2026-06", "confidence": 0.9 }</span>
+      サーバ側でLLM（Gemini等）を呼び出し、上記JSONを返す実装にしてください。キーはサーバで保管し、ブラウザには置かない構成がガバナンス設計に整合します。自動モードはClaude.ai内でのみ動作します。</div>
+  </div>
+
+  <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">Departments</span><h2>担当課・宛先</h2>
+    <span class="meta">確認依頼メールの送付先。課を追加・編集できます。</span></div>
+    <div class="row-cta"><button class="btn" id="deptAdd">課を追加</button></div></div>
+    <div class="scrollx"><table class="dtable"><thead><tr><th>課名</th><th>宛先メール</th><th></th></tr></thead>
+      <tbody>${S.depts.map((d,k)=>`<tr>
+        <td><input class="dName" data-k="${k}" value="${esc(d.name)}" style="background:var(--bg-2);border:1px solid var(--line);border-radius:7px;color:var(--ink);padding:6px 9px;font-family:var(--jp);font-size:12.5px;width:130px"></td>
+        <td><input class="dEmail" data-k="${k}" value="${esc(d.email)}" style="background:var(--bg-2);border:1px solid var(--line);border-radius:7px;color:var(--ink);padding:6px 9px;font-family:var(--mono);font-size:11.5px;width:200px"></td>
+        <td class="n"><button class="btn sm icon danger" data-ddel="${k}">✕</button></td>
+      </tr>`).join("")}</tbody></table></div>
+  </div>
+
+  <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">Backup</span><h2>バックアップ</h2>
+    <span class="meta">全データ（請求書・設定）をJSONで書出／取込。環境を移す際やメモリ動作時に利用します。</span></div>
+    <div class="row-cta">
+      <button class="btn" id="bkExport">JSON書出</button>
+      <button class="btn" id="bkImport">JSON取込</button>
+    </div></div>
+    <div class="footnote pad">保存状態：<b style="color:${persistent?'var(--ok)':'var(--delta)'}">${persistent?"自動保存 有効（このブラウザに保存）":"メモリのみ（ダウンロードして開くと保存されます）"}</b></div>
+  </div>`;
+  $("#setSave").onclick=()=>{
+    S.company.name=$("#sName").value.trim()||S.company.name;
+    S.company.accountingEmail=$("#sKeiri").value.trim();
+    S.params.minutes=+$("#sMin").value||0; S.params.aiRate=+$("#sRate").value||0;
+    S.params.hourly=+$("#sHour").value||0; S.params.volume=+$("#sVol").value||0; S.params.tolerance=+$("#sTol").value||0;
+    save(); toast("設定を保存しました"); render();
+  };
+  const readAI=()=>{ S.ai.enabled=$("#aiEnabled").value==="1"; S.ai.mode=$("#aiMode").value; S.ai.endpoint=$("#aiEndpoint").value.trim(); S.ai.model=$("#aiModel").value.trim()||"claude-sonnet-4-6"; S.ai.key=cleanKey($("#aiKey").value); };
+  $("#aiMode").onchange=()=>{ const m=$("#aiMode").value; const cur=$("#aiModel").value.trim();
+    if(m==="gemini" && (!cur||/^claude/i.test(cur))) $("#aiModel").value="gemini-2.5-flash";
+    if((m==="auto"||m==="anthropic") && (!cur||/^gemini/i.test(cur))) $("#aiModel").value="claude-sonnet-4-6"; };
+  $("#aiSave").onclick=()=>{ readAI(); save(); toast("AI設定を保存しました"); render(); };
+  $("#aiTest").onclick=async ()=>{ readAI(); const wasEnabled=S.ai.enabled; S.ai.enabled=true; toast("接続テスト中…");
+    try{ const r=await aiExtract({text:"Google Japan G.K. 請求書 ご請求金額 ¥1,000,000 対象期間 2026年6月 株式会社テスト 御中"});
+      toast(`接続OK：${r.media||"?"}／¥${(+r.inv||0).toLocaleString("ja-JP")}／${r.period}`); }
+    catch(e){ toast("接続失敗："+String(e.message||e)); }
+    finally{ S.ai.enabled=wasEnabled; save(); } };
+  v.querySelectorAll(".dName").forEach(inp=>inp.onchange=()=>{ S.depts[+inp.dataset.k].name=inp.value.trim(); save(); });
+  v.querySelectorAll(".dEmail").forEach(inp=>inp.onchange=()=>{ S.depts[+inp.dataset.k].email=inp.value.trim(); save(); });
+  v.querySelectorAll("[data-ddel]").forEach(b=>b.onclick=()=>{ if(S.depts.length<=1){toast("最低1つの課が必要です");return;} S.depts.splice(+b.dataset.ddel,1); save(); render(); });
+  $("#deptAdd").onclick=()=>{ S.depts.push({name:"新しい課",email:"team@example.co.jp"}); save(); render(); };
+  $("#bkExport").onclick=()=>{ downloadFile(`AIXバックアップ_${today()}.json`, JSON.stringify(S,null,2), "application/json"); toast("JSONを書き出しました"); };
+  $("#bkImport").onclick=()=>{ const inp=document.createElement("input"); inp.type="file"; inp.accept=".json,application/json";
+    inp.onchange=()=>{ const f=inp.files[0]; if(!f)return; const fr=new FileReader(); fr.onload=()=>{ try{ const obj=JSON.parse(fr.result); if(!obj.invoices) throw 0; S=obj; save(); toast("バックアップを読み込みました"); render(); }catch(e){ toast("読み込めませんでした（JSON不正）"); } }; fr.readAsText(f,"utf-8"); };
+    inp.click(); };
+}
+
+/* ============================================================
+   PDF 取込（ブラウザ内でpdf.jsによりテキスト抽出→項目を推定→確認して登録）
+   ・ライブラリはcdnjsから遅延読込。読み込めない環境ではテキスト貼り付けに切替。
+   ============================================================ */
+const PDFJS_VER="3.11.174";
+const PDFJS_SRC=`https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VER}/pdf.min.js`;
+const PDFJS_WORKER=`https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VER}/pdf.worker.min.js`;
+let _pdfLib=null;
+function loadPdfJs(){
+  return new Promise((resolve,reject)=>{
+    if(_pdfLib) return resolve(_pdfLib);
+    if(window.pdfjsLib){ _pdfLib=window.pdfjsLib; try{_pdfLib.GlobalWorkerOptions.workerSrc=PDFJS_WORKER;}catch(e){} return resolve(_pdfLib); }
+    const s=document.createElement("script"); s.src=PDFJS_SRC;
+    const to=setTimeout(()=>reject(new Error("timeout")),15000);
+    s.onload=()=>{ clearTimeout(to); if(window.pdfjsLib){ _pdfLib=window.pdfjsLib; try{_pdfLib.GlobalWorkerOptions.workerSrc=PDFJS_WORKER;}catch(e){} resolve(_pdfLib); } else reject(new Error("no global")); };
+    s.onerror=()=>{ clearTimeout(to); reject(new Error("load failed")); };
+    document.head.appendChild(s);
+  });
+}
+async function pdfToText(file){
+  const lib=await loadPdfJs();
+  const buf=await file.arrayBuffer();
+  const pdf=await lib.getDocument({data:buf}).promise;
+  let text="";
+  for(let p=1;p<=pdf.numPages;p++){ const page=await pdf.getPage(p); const c=await page.getTextContent(); text+=c.items.map(i=>i.str).join(" ")+"\n"; }
+  return text;
+}
+/* ---- field extraction (heuristic, reviewed by user) ---- */
+function normNum(t){ return String(t).replace(/[０-９]/g,d=>String.fromCharCode(d.charCodeAt(0)-0xFEE0)).replace(/，/g,",").replace(/[￥]/g,"¥"); }
+function detectMedia(t){
+  const s=t.toLowerCase();
+  if(/tiktok|tik tok|ティックトック|bytedance|バイトダンス/.test(s)) return "TikTok広告";
+  if(/google|グーグル|google ads|ads\.google/.test(s)) return "Google広告";
+  if(/meta|facebook|instagram|メタ|フェイスブック|インスタグラム/.test(s)) return "Meta広告";
+  if(/yahoo|ヤフー/.test(s)) return "Yahoo!広告";
+  if(/microsoft|bing|マイクロソフト/.test(s)) return "Microsoft広告";
+  if(/line\s*(ads|広告|株式会社)|lineヤフー|ライン広告/.test(s)) return "LINE広告";
+  if(/(^|\W)x\s*(ads|corp|広告)|twitter|旧twitter|x\.com/.test(s)) return "X広告";
+  return "";
+}
+function pickAmount(t){
+  t=normNum(t);
+  const labels=/(ご請求金額|請求金額|お支払い金額|お支払金額|請求額|合計金額|税込合計|総合計|総額|ご請求額|合計)\s*[:：]?\s*¥?\s*([0-9][0-9,]{2,})/g;
+  let m,best=0; while((m=labels.exec(t))){ const v=+m[2].replace(/,/g,""); if(v>best) best=v; }
+  if(best) return best;
+  const re=/¥?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,})\s*円?/g; let x,mx=0;
+  while((x=re.exec(t))){ const v=+x[1].replace(/,/g,""); if(v>mx) mx=v; }
+  return mx||null;
+}
+function pickPeriod(t){
+  t=normNum(t);
+  let m=t.match(/(20[0-9]{2})\s*[年\/\.\-]\s*([0-9]{1,2})\s*月?/);
+  return m? m[1]+"-"+String(m[2]).padStart(2,"0") : "";
+}
+function pickClient(t){
+  let m=t.match(/([一-龥ぁ-んァ-ヶA-Za-z0-9()（）・ー]{2,30}?)\s*御中/);
+  if(m) return m[1].trim();
+  m=t.match(/((?:株式会社|合同会社|有限会社)[一-龥ぁ-んァ-ヶA-Za-z0-9]{1,20})/);
+  return m? m[1] : "";
+}
+function extractInvoice(text){
+  const media=detectMedia(text), inv=pickAmount(text), period=pickPeriod(text)||"2026-06", client=pickClient(text);
+  const conf=(media?1:0)+(inv?1:0)+(pickPeriod(text)?1:0);
+  return { media, client, inv:inv||"", period, conf };
+}
+
+let pdfDraft=[];
+
+/* ---- AI extraction: send invoice info to an AI API and get structured fields ---- */
+function aiConfigured(){ if(!S.ai) return false; const m=S.ai.mode; if(m==="auto"||m==="anthropic") return true; if(m==="gemini") return !!(S.ai.key&&S.ai.key.trim()); return !!(S.ai.endpoint&&S.ai.endpoint.trim()); }
+function aiModeLabel(){ const m=S.ai&&S.ai.mode; return m==="custom"?"社内API":m==="anthropic"?"Anthropic":m==="gemini"?"Gemini":"Claude.ai 自動"; }
+function aiEnabledForModal(){ const t=$("#aiToggle"); const on=t?t.checked:(S.ai&&S.ai.enabled); return !!(on&&aiConfigured()); }
+function aiRunReason(){ if(!S.ai||!S.ai.enabled) return "AI抽出が無効になっています。"; if(S.ai.mode==="gemini"&&!(S.ai.key&&S.ai.key.trim())) return "Gemini APIキーが未設定です。"; if(!aiConfigured()) return "AI抽出のエンドポイントが未設定です。"; return null; }
+function fileToBase64(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]||""); r.onerror=()=>rej(new Error("read failed")); r.readAsDataURL(file); }); }
+function buildPrompt(text){
+  return `あなたは経理アシスタントです。次は広告媒体からの請求書です。以下の項目を**JSONのみ**で返してください（説明文・コードフェンス・前置き禁止）。
+{"media":"Google広告|Meta広告|Yahoo!広告|LINE広告|TikTok広告|X広告|Microsoft広告|その他 のいずれか","client":"広告主/アカウント名。無ければ空文字","amount":税込請求総額の整数(円)。無ければnull,"period":"対象期間 YYYY-MM。無ければ空文字","confidence":0〜1の数値}
+${text?`請求書テキスト:\n"""${String(text).slice(0,8000)}"""`:"添付PDFの請求書を読み取ってください。"}`;
+}
+async function aiExtract({text,file}){
+  if(!S.ai||!S.ai.enabled) throw new Error("AI無効");
+  const cfg=S.ai;
+  const promptFor=attached=>buildPrompt(attached?"":(text||""));
+
+  // 社内API（プロキシ）：テキストを渡してJSONを受け取る契約
+  if(cfg.mode==="custom"){
+    if(!cfg.endpoint) throw new Error("エンドポイント未設定");
+    const res=await fetch(cfg.endpoint,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({text:(text||"").slice(0,12000),filename:file?file.name:null})});
+    if(!res.ok) throw await httpErr(res);
+    return normalizeExtract(pickJson(await res.json()));
+  }
+
+  // Gemini API（generateContent・x-goog-api-key・JSONモード）
+  if(cfg.mode==="gemini"){
+    if(!cfg.key) throw new Error("Gemini APIキーが必要です（設定＞AI抽出）");
+    let model=cfg.model||"gemini-2.5-flash"; if(/^claude/i.test(model)) model="gemini-2.5-flash";
+    const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    const parts=[]; let attached=false;
+    if(file && !(text&&text.trim().length>40)){ try{ const b64=await fileToBase64(file); parts.push({inline_data:{mime_type:"application/pdf",data:b64}}); attached=true; }catch(e){} }
+    parts.push({text:promptFor(attached)});
+    const res=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":cfg.key},
+      body:JSON.stringify({contents:[{parts}],generationConfig:{responseMimeType:"application/json",temperature:0,maxOutputTokens:2048}})});
+    if(!res.ok){ const e=await httpErr(res); if(/api.?key.?not.?valid|API_KEY_INVALID|api key expired/i.test(e.message)){ e.message+="／確認：AIza…で始まるAI Studioのキーか・引用符や空白の混入・Generative Language APIが有効・Vertex用の資格情報は不可・キーにHTTPリファラー制限が無いか"; if(inFrame()) e.message+="／※このページはプレビュー(iframe)内で動作中。第三者APIが制限される場合があります。ファイルをダウンロードしてブラウザで直接開いてお試しください"; } throw e; }
+    return normalizeExtract(pickJson(await res.json()));
+  }
+
+  // Anthropic（auto: Claude.ai内でキー不要 / anthropic: キー使用）
+  let model=cfg.model||"claude-sonnet-4-6"; if(/^gemini/i.test(model)) model="claude-sonnet-4-6";
+  const url=(cfg.mode==="anthropic"&&cfg.endpoint)?cfg.endpoint:"https://api.anthropic.com/v1/messages";
+  const content=[]; let attached=false;
+  if(file && !(text&&text.trim().length>40)){ try{ const b64=await fileToBase64(file); content.push({type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}}); attached=true; }catch(e){} }
+  content.push({type:"text",text:promptFor(attached)});
+  const headers={"Content-Type":"application/json"};
+  if(cfg.key){ headers["x-api-key"]=cfg.key; headers["anthropic-version"]="2023-06-01"; headers["anthropic-dangerous-direct-browser-access"]="true"; }
+  const res=await fetch(url,{method:"POST",headers,body:JSON.stringify({model,max_tokens:1000,messages:[{role:"user",content}]})});
+  if(!res.ok) throw await httpErr(res);
+  return normalizeExtract(pickJson(await res.json()));
+}
+async function httpErr(res){
+  let detail="";
+  try{ const t=await res.text(); try{ const j=JSON.parse(t); detail=(j.error&&(j.error.message||j.error.status))||j.message||(j.error?JSON.stringify(j.error):t); }catch(_){ detail=t; } }catch(e){}
+  detail=(detail||"").toString().replace(/\s+/g," ").slice(0,300);
+  return new Error("HTTP "+res.status+(detail?"："+detail:""));
+}
+function pickJson(data){
+  if(data&&Array.isArray(data.content)){ const txt=data.content.filter(b=>b.type==="text").map(b=>b.text).join("\n"); return looseJson(txt); }
+  if(data&&data.candidates&&data.candidates[0]){ const cand=data.candidates[0]; const parts=(cand.content&&cand.content.parts)||[]; const txt=parts.map(p=>p.text||"").join("\n"); if(!txt.trim()) throw new Error("Geminiの応答が空です（finishReason: "+(cand.finishReason||"?")+"）"); return looseJson(txt); }
+  if(data&&data.promptFeedback&&data.promptFeedback.blockReason) throw new Error("Geminiにブロックされました（"+data.promptFeedback.blockReason+"）");
+  if(data&&typeof data==="object"){ if(data.invoices&&data.invoices[0]) return data.invoices[0]; if("media"in data||"amount"in data||"client"in data) return data; }
+  if(typeof data==="string") return looseJson(data);
+  throw new Error("応答を解釈できません");
+}
+function looseJson(s){ s=String(s).replace(/```json/gi,"").replace(/```/g,"").trim(); const a=s.indexOf("{"),b=s.lastIndexOf("}"); if(a>=0&&b>a) s=s.slice(a,b+1); return JSON.parse(s); }
+function normalizeExtract(o){
+  o=o||{};
+  const media=(o.media||"").toString().trim();
+  const invRaw=o.amount!=null?o.amount:(o.inv!=null?o.inv:"");
+  const inv=(invRaw===""||invRaw==null)?"":(+String(invRaw).replace(/[^\d.-]/g,"")||0);
+  const periodRaw=((o.period||"")+"").trim();
+  const client=((o.client||"")+"").trim();
+  let conf; if(typeof o.confidence==="number") conf=Math.round(o.confidence*3); else conf=(media?1:0)+(inv?1:0)+(periodRaw?1:0);
+  return { media, client, inv:inv||"", period:periodRaw||"2026-06", conf:Math.max(0,Math.min(3,conf)) };
+}
+
+function pdfImportModal(){
+  pdfDraft=[];
+  const o=$("#overlay");
+  o.innerHTML=`<div class="mbox wide"><div class="mh"><h3>PDFから請求書を取込（AI読み取り）</h3><button class="btn icon" id="mX">✕</button></div>
+    <div class="pad">
+      <label style="display:flex;align-items:center;gap:9px;font-size:12px;color:var(--ink-2);margin-bottom:10px">
+        <input type="checkbox" id="aiToggle" ${(S.ai&&S.ai.enabled&&aiConfigured())?"checked":""} ${aiConfigured()?"":"disabled"}>
+        AIで読み取って自動入力する
+        <span class="confpill ${aiConfigured()?'hi':'lo'}">${aiModeLabel()}</span>
+      </label>
+      <div id="aiBanner"></div>
+      <label class="dropzone" id="dz"><div class="bigt">PDFをドロップ、またはクリックして選択</div>選ぶだけでAIが媒体・請求額・期間・広告主を読み取り、下の表に自動入力します（手入力は不要）。
+        <input type="file" id="pdfFiles" accept="application/pdf,.pdf" multiple></label>
+      <div class="pdfstatus" id="pdfStatus" style="display:none"></div>
+      <div id="review" style="margin-top:6px"></div>
+      <details style="margin-top:14px"><summary style="cursor:pointer;font-size:12px;color:var(--ink-2)">PDFを読み込めない場合：テキストを貼り付けて解析</summary>
+        <div class="field full" style="margin-top:10px"><textarea id="pasteText" placeholder="PDFビューアで請求書のテキストをコピーして貼り付け"></textarea></div>
+        <button class="btn sm" id="parsePaste" style="margin-top:8px">貼り付けを解析</button>
+      </details>
+    </div>
+    <div class="mf"><button class="btn" id="mCancel">キャンセル</button><button class="btn pri" id="pdfSave" disabled>登録</button></div>
+  </div>`;
+  o.classList.add("show");
+  const rb=$("#aiBanner"), reason=aiRunReason();
+  if(rb && reason){ rb.innerHTML=`<div class="banner"><span class="warnpill">AI未実行</span><div>${reason}<br>このままPDFを入れると<b>手入力</b>になります。自動入力するには「設定 ＞ AI抽出」で有効化・接続してください。</div></div>`; }
+  const close=()=>closeModal();
+  $("#mX").onclick=close; $("#mCancel").onclick=close; o.onclick=(e)=>{ if(e.target===o) close(); };
+  const dz=$("#dz");
+  ["dragover","dragenter"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add("drag");}));
+  ["dragleave","drop"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove("drag");}));
+  dz.addEventListener("drop",e=>{ if(e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files); });
+  $("#pdfFiles").onchange=e=>handleFiles(e.target.files);
+  $("#parsePaste").onclick=async ()=>{ const t=$("#pasteText").value.trim(); if(!t){toast("テキストを貼り付けてください");return;}
+    let ext,kind;
+    if(aiEnabledForModal()){ try{ ext=await aiExtract({text:t}); kind=S.ai.mode==="custom"?"api":"ai"; }catch(e){ ext=extractInvoice(t); kind="pdf"; toast("AI抽出に失敗：推定で解析しました"); } }
+    else { ext=extractInvoice(t); kind="pdf"; }
+    addDraft("貼り付け"+(pdfDraft.length+1), ext, kind); renderReview(); };
+  $("#pdfSave").onclick=savePdfDraft;
+}
+async function handleFiles(files){
+  const st=$("#pdfStatus"); st.style.display="flex"; st.className="pdfstatus";
+  const arr=[...files].filter(f=>/pdf$/i.test(f.name)||f.type==="application/pdf");
+  if(!arr.length){ st.textContent="PDFファイルが見つかりません"; return; }
+  const useAI=aiEnabledForModal(); const canSendFile=useAI && S.ai.mode!=="custom";
+  let aiCount=0, fbCount=0, lastErr=null;
+  for(let k=0;k<arr.length;k++){
+    const f=arr[k];
+    st.className="pdfstatus";
+    st.innerHTML=`<span class="spin"></span>${useAI?"AIが読み取り中":"読み取り中"}… ${k+1}/${arr.length}：${esc(f.name)}`;
+    let ext=null, kind="pdf";
+    // 1) マルチモーダル（Anthropic/auto/Gemini）：PDF本体を直接AIへ（スキャンPDFも可・pdf.js不要）
+    if(canSendFile){ try{ ext=await aiExtract({file:f}); kind="ai"; }catch(e){ lastErr=e; } }
+    if(!ext){
+      try{
+        const text=await pdfToText(f);
+        if(useAI){ try{ ext=await aiExtract({text,file:f}); kind=S.ai.mode==="custom"?"api":"ai"; }catch(e){ lastErr=e; ext=extractInvoice(text); kind="pdf"; } }
+        else { ext=extractInvoice(text); kind="pdf"; }
+      }catch(err){
+        if(String(err.message).match(/load failed|timeout|no global/)){
+          st.className="pdfstatus err";
+          st.innerHTML=`PDFを読み取れませんでした（ライブラリ未読込／接続不可）。設定＞AI抽出でエンドポイントを設定するか、下の「テキスト貼り付け」をご利用ください。`;
+          return;
+        }
+        ext={media:"",client:"",inv:"",period:"2026-06",conf:0}; kind="error";
+      }
+    }
+    if(kind==="ai"||kind==="api") aiCount++; else fbCount++;
+    addDraft(f.name, ext, kind); renderReview();
+  }
+  if(useAI && aiCount===0){
+    st.className="pdfstatus err";
+    st.innerHTML=`AIで読み取れませんでした：${lastErr?esc(String(lastErr.message||lastErr)):"接続不可の可能性"}。推定で入力しています。設定＞AI抽出（接続テスト）をご確認ください。`;
+  } else if(useAI){
+    st.className="pdfstatus";
+    st.innerHTML=`✓ AIが ${aiCount}件を自動入力${fbCount?`／${fbCount}件は推定（要確認）`:""}。内容を確認して「登録」。`;
+  } else {
+    st.className="pdfstatus";
+    st.innerHTML=`✓ ${pdfDraft.length}件を推定で入力（AI未使用）。内容を確認・修正して「登録」。`;
+  }
+}
+function addDraft(name,ext,kind){
+  pdfDraft.push({ name, kind, media:ext.media||"", client:ext.client||"", inv:ext.inv||"", period:ext.period||"2026-06",
+    dept:(S.depts[0]&&S.depts[0].name)||"", conf:ext.conf||0, include:true });
+}
+function mediaOpts(sel){ return `<option value="">未判定</option>`+Object.keys(MEDIA).filter(m=>m!=="その他").map(m=>`<option ${sel===m?"selected":""}>${m}</option>`).join("")+`<option ${sel==="その他"?"selected":""}>その他</option>`; }
+function deptOpts(sel){ return S.depts.map(d=>`<option ${sel===d.name?"selected":""}>${esc(d.name)}</option>`).join(""); }
+function renderReview(){
+  const c=$("#review"); if(!c) return;
+  if(!pdfDraft.length){ c.innerHTML=""; $("#pdfSave").disabled=true; return; }
+  c.innerHTML=`<div class="scrollx"><table class="dtable">
+    <thead><tr><th>ファイル／推定</th><th>媒体</th><th>クライアント</th><th>期間</th><th class="n">請求額</th><th>担当課</th><th>登録</th></tr></thead>
+    <tbody>${pdfDraft.map((d,i)=>{
+      const cc=d.conf>=3?"hi":d.conf===2?"mid":"lo"; const cl=d.conf>=3?"推定 高":d.conf===2?"推定 中":"要確認";
+      const kt=d.kind==="ai"?"AI読取":d.kind==="api"?"社内API":d.kind==="error"?"要手入力":d.kind==="paste"?"貼り付け":"推定";
+      const kc=d.kind==="ai"||d.kind==="api"?"hi":d.kind==="error"?"lo":"mid";
+      const needClient=!String(d.client).trim();
+      const clStyle=needClient?"width:130px;border-color:var(--delta)":"width:130px";
+      return `<tr>
+        <td style="max-width:170px"><div style="font-size:11px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.name)}</div><span class="confpill ${kc}">${kt}</span> <span class="confpill ${cc}">${cl}</span></td>
+        <td><select class="rvinput" data-i="${i}" data-f="media">${mediaOpts(d.media)}</select></td>
+        <td><input class="rvinput" data-i="${i}" data-f="client" value="${esc(d.client)}" placeholder="${needClient?'広告主を入力':'—'}" style="${clStyle}">${needClient?'<div style="font-size:9.5px;color:var(--delta);margin-top:2px">要入力</div>':''}</td>
+        <td><input class="rvinput" data-i="${i}" data-f="period" value="${esc(d.period)}" style="width:78px"></td>
+        <td class="n"><input class="rvinput num" data-i="${i}" data-f="inv" type="number" value="${d.inv}" placeholder="0" style="width:108px"></td>
+        <td><select class="rvinput" data-i="${i}" data-f="dept">${deptOpts(d.dept)}</select></td>
+        <td style="text-align:center"><input type="checkbox" data-i="${i}" data-f="include" ${d.include?"checked":""}></td>
+      </tr>`;
+    }).join("")}</tbody></table></div>`;
+  c.querySelectorAll("[data-i][data-f]").forEach(el=>{
+    const ev = el.type==="checkbox"||el.tagName==="SELECT" ? "change":"input";
+    el.addEventListener(ev,()=>{ const i=+el.dataset.i, f=el.dataset.f;
+      pdfDraft[i][f] = f==="include"? el.checked : (f==="inv"? (+el.value||0) : el.value);
+      updatePdfSave();
+    });
+  });
+  updatePdfSave();
+}
+function updatePdfSave(){ const ok=pdfDraft.some(d=>d.include && d.client.trim() && +d.inv>0); const b=$("#pdfSave"); if(b) b.disabled=!ok; }
+function savePdfDraft(){
+  const rows=pdfDraft.filter(d=>d.include && d.client.trim() && +d.inv>0);
+  if(!rows.length){ toast("クライアント名と請求額が必要です"); return; }
+  rows.forEach(d=>S.invoices.push({ id:S.seq++, media:d.media||"その他", client:d.client.trim(), period:d.period||"2026-06",
+    inv:+d.inv||0, act:null, dept:d.dept||(S.depts[0]&&S.depts[0].name)||"", owner:"", flag:null, pdf:d.name,
+    requested:false, approval:"pending", note:"", decidedAt:null, sent:false, reconciled:"none", diff:null }));
+  save(); toast(`${rows.length}件を登録しました`); closeModal(); render();
+}
+
+/* ============================================================
+   MODAL / boot
+   ============================================================ */
+function openModal(title,inner,okLabel,onOk){
+  const o=$("#overlay");
+  o.innerHTML=`<div class="mbox"><div class="mh"><h3>${esc(title)}</h3><button class="btn icon" id="mX">✕</button></div>
+    <div>${inner}</div>
+    <div class="mf"><button class="btn" id="mCancel">キャンセル</button>${okLabel?`<button class="btn pri" id="mOk">${esc(okLabel)}</button>`:""}</div></div>`;
+  o.classList.add("show");
+  const close=()=>closeModal();
+  $("#mX").onclick=close; $("#mCancel").onclick=close;
+  o.onclick=(e)=>{ if(e.target===o) close(); };
+  if(okLabel){ $("#mOk").onclick=()=>{ const r=onOk(); if(r!==false) closeModal(); }; }
+}
+function closeModal(){ const o=$("#overlay"); o.classList.remove("show"); o.innerHTML=""; }
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeModal(); });
+
+/* ---------- bootstrap state (helpers are now defined) ---------- */
+function migrate(){
+  if(!S) return;
+  if(!S.ai) S.ai={ enabled:true, mode:"auto", endpoint:"", model:"claude-sonnet-4-6", key:"" };
+  if(S.ai.model===undefined) S.ai.model="claude-sonnet-4-6";
+  (S.invoices||[]).forEach(i=>{ if(i.reconciled===undefined) i.reconciled="none"; if(i.approval===undefined) i.approval="pending"; if(i.pdf===undefined) i.pdf=null; });
+}
+S = loadRaw();
+if(!S){ S = defaultState(); S.invoices = sampleInvoices(); S.seq = 11; }
+migrate();
+save();
+
+render();
+</script>
+</html>
