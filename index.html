@@ -2,7 +2,7 @@
 <html lang="ja">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AIX 請求書オートメーション</title>
+<title>billing-system</title>
 <style>
   :root{
     /* light theme — white base, gray text, single teal accent */
@@ -29,9 +29,10 @@
   .topbar{display:flex;align-items:center;gap:16px;padding:12px 22px;border-bottom:1px solid var(--line);
     background:rgba(255,255,255,.92);backdrop-filter:blur(6px);position:sticky;top:0;z-index:40}
   .brand{display:flex;align-items:center;gap:12px;min-width:0}
-  .mark{width:34px;height:34px;border-radius:9px;flex:none;background:var(--ai);
+  .mark{width:34px;height:34px;border-radius:9px;flex:none;background:var(--ai);overflow:hidden;
     display:grid;place-items:center;color:#FFFFFF;font-weight:800;font-family:var(--mono);font-size:15px;
     box-shadow:0 1px 2px rgba(15,23,42,.10)}
+  .mark img{width:100%;height:100%;object-fit:cover;display:block}
   .brand h1{font-size:14.5px;margin:0;font-weight:700} .brand .sub{font-size:11px;color:var(--ink-3);margin-top:1px}
   .tb-spacer{flex:1}
   .savechip{font-size:11px;color:var(--ink-2);border:1px solid var(--line);padding:6px 11px;border-radius:999px;background:var(--panel);display:flex;align-items:center;gap:7px;white-space:nowrap}
@@ -225,8 +226,8 @@
 
 <div class="topbar">
   <div class="brand">
-    <div class="mark">A</div>
-    <div><h1>AIX 請求書オートメーション</h1><div class="sub" id="brandSub">株式会社AODAISHO</div></div>
+    <div class="mark" id="brandMark">A</div>
+    <div><h1>billing-system</h1><div class="sub" id="brandSub">株式会社AODAISHO</div></div>
   </div>
   <div class="tb-spacer"></div>
   <div class="savechip" id="saveChip"><span class="d"></span><span class="lbl">自動保存 有効</span></div>
@@ -252,6 +253,18 @@ const MEDIA = {
   "Microsoft広告":{bg:"#5CC8C2",ini:"Ms"}, "その他":{bg:"#7C8BA5",ini:"·"}
 };
 const KEY="aix_ap_v2";
+const DEFAULT_TPL_SUBJECT="【要確認】{期間} 媒体費請求 {件数}件";
+const DEFAULT_TPL_BODY=`{部署} ご担当者さま
+
+{期間}分の媒体費請求について、配信実績とご確認のうえ、
+各請求の「承認」または「差戻し」を、社内ツール『billing-system』の
+［部署確認］画面よりご対応ください。
+
+対象請求（{件数}件）：
+{明細}
+
+差異・不明点がある場合は差戻しを選択し、媒体照会に回してください。
+※ 本メールは{差出人}が自動生成しています。`;
 let persistent=true;
 
 /* ---------- storage ---------- */
@@ -262,7 +275,7 @@ function loadRaw(){ try{ const r=localStorage.getItem(KEY); return r?JSON.parse(
 function defaultState(){
   return {
     v:2,
-    company:{ name:"株式会社サンプル", accountingEmail:"keiri@example.co.jp" },
+    company:{ name:"株式会社サンプル", accountingEmail:"keiri@example.co.jp", icon:null },
     params:{ minutes:4, aiRate:75, hourly:2500, volume:340, tolerance:0 },
     depts:[
       {name:"運用1課", email:"unyo1@example.co.jp"},
@@ -279,6 +292,7 @@ function defaultState(){
     ],
     inboxes:[{name:"メイン受信箱", url:"", token:""}],
     inboxQuery:"has:attachment filename:pdf newer_than:30d",
+    mailTpl:{ subject:DEFAULT_TPL_SUBJECT, body:DEFAULT_TPL_BODY },
     importedMsgIds:[],
     invoices:[],
     seq:1
@@ -392,7 +406,8 @@ function renderTabs(){
   }).join("");
   $("#tabs").querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; render(); });
 }
-function render(){ $("#brandSub").textContent=S.company.name||"株式会社AODAISHO"; renderTabs(); updateSaveChip();
+function render(){ $("#brandSub").textContent=S.company.name||"billing-system"; renderTabs(); updateSaveChip();
+  const bm=$("#brandMark"); if(bm) bm.innerHTML = S.company.icon? `<img src="${S.company.icon}" alt="icon">` : "B";
   const v=$("#view");
   if(tab==="dash") viewDash(v);
   else if(tab==="reg") viewReg(v);
@@ -681,7 +696,13 @@ function viewReq(v){
   };
 }
 /* ---- 実送信（GAS: 自分のGmailから送信 ／ api: 社内メールAPI） ---- */
-function mailSubj(g){ return `【要確認】${g.items[0].period} 媒体費請求 ${g.items.length}件`; }
+function tplCtx(dept,items){
+  const lines=items.map((i,k)=>`  ${k+1}. ${i.media}／${i.client}（${i.period}）：${yen(i.inv)}`).join("\n");
+  return { "部署":dept, "件数":String(items.length), "期間":(items[0]&&items[0].period)||"",
+           "明細":lines, "会社名":S.company.name||"", "差出人":(S.mail&&S.mail.fromName)||"経理オートメーション" };
+}
+function renderTpl(tpl,ctx){ return String(tpl||"").replace(/\{(部署|件数|期間|明細|会社名|差出人)\}/g,(_,k)=>ctx[k]??""); }
+function mailSubj(g){ return renderTpl((S.mailTpl&&S.mailTpl.subject)||DEFAULT_TPL_SUBJECT, tplCtx(g.dept.name,g.items)); }
 function mailConfigured(){ const m=S.mail||{}; return (m.mode==="gas"&&m.gasUrl) || (m.mode==="api"&&m.apiUrl); }
 async function sendMailReal({to,subject,body}){
   const m=S.mail||{};
@@ -714,18 +735,7 @@ async function sendMailReal({to,subject,body}){
   throw new Error("実送信は未設定です（設定＞メール送信でGASまたはAPIを設定）");
 }
 function mailBody(dept,items){
-  const lines=items.map((i,k)=>`  ${k+1}. ${i.media}／${i.client}（${i.period}）：${yen(i.inv)}`).join("\n");
-  return `${dept} ご担当者さま
-
-2026年6月分の媒体費請求について、配信実績とご確認のうえ、
-各請求の「承認」または「差戻し」を、社内ツール『AIX 請求書オートメーション』の
-［部署確認］画面よりご対応ください。
-
-対象請求（${items.length}件）：
-${lines}
-
-差異・不明点がある場合は差戻しを選択し、媒体照会に回してください。
-※ 本メールは経理オートメーションが自動生成しています。`;
+  return renderTpl((S.mailTpl&&S.mailTpl.body)||DEFAULT_TPL_BODY, tplCtx(dept,items));
 }
 
 /* ============================================================
@@ -857,6 +867,13 @@ function viewSet(v){
     <div class="form">
       <div class="field"><label>会社名</label><input id="sName" value="${esc(S.company.name)}"></div>
       <div class="field"><label>経理 宛先メール</label><input id="sKeiri" value="${esc(S.company.accountingEmail)}"></div>
+      <div class="field full"><label>アイコン（左上のロゴ・画像取込）</label>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <span class="mark" style="width:40px;height:40px">${S.company.icon?`<img src="${S.company.icon}" alt="icon" style="width:100%;height:100%;object-fit:cover;display:block">`:"B"}</span>
+          <input type="file" id="iconFile" accept="image/*" style="font-size:12px">
+          ${S.company.icon?`<button class="btn sm danger" id="iconReset" type="button">初期に戻す</button>`:""}
+        </div>
+        <span class="hint">正方形にトリミングして64pxで保存します（PNG/JPG可）。</span></div>
       <div class="field"><label>1件あたり所要時間（分）</label><input id="sMin" type="number" value="${p.minutes}"></div>
       <div class="field"><label>AI代替率（%）</label><input id="sRate" type="number" value="${p.aiRate}"></div>
       <div class="field"><label>人件費単価（時給・円）</label><input id="sHour" type="number" value="${p.hourly}"></div>
@@ -955,6 +972,16 @@ function json(o) {
     </details>
   </div>
 
+  <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">Mail Template</span><h2>確認メールテンプレート</h2>
+    <span class="meta">確認依頼メールの件名・本文を編集できます。差し込み変数：<b>{部署}</b> {件数} {期間} {明細} {会社名} {差出人}</span></div>
+    <div class="row-cta"><button class="btn" id="tplPreview">プレビュー</button><button class="btn" id="tplReset">初期に戻す</button><button class="btn pri" id="tplSave">保存</button></div></div>
+    <div class="form">
+      <div class="field full"><label>件名テンプレート</label><input id="tplSubj" value="${esc(S.mailTpl.subject)}"></div>
+      <div class="field full"><label>本文テンプレート</label><textarea id="tplBody" style="min-height:220px">${esc(S.mailTpl.body)}</textarea>
+        <span class="hint">{部署}=宛先の課名 ／ {件数}=請求件数 ／ {期間}=対象期間 ／ {明細}=請求一覧（自動生成） ／ {会社名}=会社設定の名前 ／ {差出人}=メール送信設定の差出人名</span></div>
+    </div>
+  </div>
+
   <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">Inboxes</span><h2>受信箱（メール取込）</h2>
     <span class="meta">請求書PDFを読み取るGmail受信箱。複数登録して取込時に切替できます。別アカウントの受信箱は、そのアカウントでGASをデプロイしてURLを登録してください（下の統合スクリプトが送信と受信の両方に対応）。</span></div>
     <div class="row-cta"><button class="btn" id="ibAdd">受信箱を追加</button></div></div>
@@ -1026,8 +1053,38 @@ function json(o) {
     if(!to){ return; }
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)){ toast("メールアドレスの形式が正しくありません"); return; }
     toast("テスト送信中…");
-    try{ await sendMailReal({to, subject:"【テスト】AIX 送信テスト", body:"このメールは AIX 請求書オートメーションの送信テストです。\nこのメールが届いていれば設定は完了です。"}); toast(`テスト送信に成功しました（宛先：${to}）`); }
+    try{ await sendMailReal({to, subject:"【テスト】billing-system 送信テスト", body:"このメールは billing-system の送信テストです。\nこのメールが届いていれば設定は完了です。"}); toast(`テスト送信に成功しました（宛先：${to}）`); }
     catch(e){ toast("テスト失敗："+(e.message||e)); } };
+  // アイコン（画像取込→64px正方形に縮小して保存）
+  const iconInp=$("#iconFile");
+  if(iconInp) iconInp.onchange=()=>{
+    const f=iconInp.files&&iconInp.files[0]; if(!f) return;
+    if(!/^image\//.test(f.type)){ toast("画像ファイルを選択してください"); return; }
+    const fr=new FileReader();
+    fr.onload=()=>{ const img=new Image();
+      img.onload=()=>{ try{
+        const c=document.createElement("canvas"); c.width=c.height=64;
+        const x=c.getContext("2d"); const s=Math.min(img.width,img.height);
+        x.drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,64,64);
+        S.company.icon=c.toDataURL("image/png"); save(); toast("アイコンを更新しました"); render();
+      }catch(e){ toast("画像を読み込めませんでした"); } };
+      img.onerror=()=>toast("画像を読み込めませんでした");
+      img.src=fr.result; };
+    fr.readAsDataURL(f);
+  };
+  const iconRst=$("#iconReset");
+  if(iconRst) iconRst.onclick=()=>{ S.company.icon=null; save(); toast("アイコンを初期に戻しました"); render(); };
+  // 確認メールテンプレート
+  const readTpl=()=>{ S.mailTpl.subject=$("#tplSubj").value.trim()||DEFAULT_TPL_SUBJECT; S.mailTpl.body=$("#tplBody").value||DEFAULT_TPL_BODY; };
+  $("#tplSave").onclick=()=>{ readTpl(); save(); toast("テンプレートを保存しました"); };
+  $("#tplReset").onclick=()=>{ if(!confirm("件名・本文を初期テンプレートに戻します。よろしいですか？")) return; S.mailTpl={subject:DEFAULT_TPL_SUBJECT,body:DEFAULT_TPL_BODY}; save(); toast("初期テンプレートに戻しました"); render(); };
+  $("#tplPreview").onclick=()=>{ readTpl(); save();
+    const pending=S.invoices.filter(i=>i.approval==="pending");
+    const g=S.depts.map(d=>({dept:d,items:pending.filter(i=>i.dept===d.name)})).find(x=>x.items.length)
+      || {dept:{name:"運用1課"},items:[{media:"Google広告",client:"サンプル広告",period:"2026-06",inv:1240000},{media:"Meta広告",client:"サンプル広告",period:"2026-06",inv:912300}]};
+    openModal("テンプレート プレビュー",
+      `<div class="pad"><div class="draft" style="margin:0"><div class="dh"><div class="to">To：${esc(g.dept.name)}</div></div>
+        <div class="body">件名：${esc(mailSubj(g))}\n\n${esc(mailBody(g.dept.name,g.items))}</div></div></div>`, null, null); };
   // 受信箱
   v.querySelectorAll(".ibName").forEach(inp=>inp.onchange=()=>{ S.inboxes[+inp.dataset.k].name=inp.value.trim()||"受信箱"; save(); });
   v.querySelectorAll(".ibUrl").forEach(inp=>inp.onchange=()=>{ S.inboxes[+inp.dataset.k].url=inp.value.trim(); save(); });
@@ -1423,6 +1480,8 @@ function migrate(){
   if(!S.inboxes||!S.inboxes.length) S.inboxes=[{name:"メイン受信箱", url:S.mail&&S.mail.gasUrl||"", token:S.mail&&S.mail.token||""}];
   if(!S.inboxQuery) S.inboxQuery="has:attachment filename:pdf newer_than:30d";
   if(!S.importedMsgIds) S.importedMsgIds=[];
+  if(S.company&&S.company.icon===undefined) S.company.icon=null;
+  if(!S.mailTpl) S.mailTpl={ subject:DEFAULT_TPL_SUBJECT, body:DEFAULT_TPL_BODY };
   (S.invoices||[]).forEach(i=>{ if(i.reconciled===undefined) i.reconciled="none"; if(i.approval===undefined) i.approval="pending"; if(i.pdf===undefined) i.pdf=null; });
 }
 S = loadRaw();
