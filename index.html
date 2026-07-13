@@ -138,6 +138,11 @@
   .draft .to{font-size:12.5px;color:var(--ink);font-weight:600}
   .draft .to .em{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);font-weight:400;margin-left:6px}
   .draft .dh .row-cta{margin-left:auto}
+  .to-edit{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+  .to-label{font-family:var(--mono);font-size:11px;color:var(--ink-3);flex:none}
+  .to-input{font-family:var(--jp);font-size:12.5px;color:var(--ink);background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:230px;max-width:60vw}
+  .to-input:focus{border-color:var(--ai);outline:none}
+  .to-dept{font-size:11px;color:var(--ink-3);flex:none}
   .draft .body{padding:13px 15px;font-family:var(--mono);font-size:11.5px;color:var(--ink-2);line-height:1.7;white-space:pre-wrap}
 
   /* approval */
@@ -593,18 +598,23 @@ function viewReq(v){
   const modeLabel=(S.mail&&S.mail.mode)==="gas"?"Gmail(GAS)で実送信":(S.mail&&S.mail.mode)==="api"?"社内APIで実送信":"メール下書き(mailto)";
   v.innerHTML=`
   <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">Request</span><h2>確認依頼メール</h2>
-    <span class="meta">担当課ごとに確認依頼を自動生成。送信方法：<b>${modeLabel}</b>${real?"":"（実送信は 設定＞メール送信 で有効化できます）"}</span></div>
+    <span class="meta">担当課ごとに自動生成。<b>送信前に宛先を確認・編集</b>できます。送信方法：<b>${modeLabel}</b>${real?"":"（実送信は 設定＞メール送信 で有効化できます）"}</span></div>
     ${groups.length?`<div class="row-cta">${real?`<button class="btn pri" id="sendAll">全課に一括送信（${groups.length}通）</button>`:""}<button class="btn" id="markAll">全件を依頼済みにする</button></div>`:""}</div>
     ${groups.length? `<div class="pad">${groups.map((g,gi)=>{
       const body=mailBody(g.dept.name,g.items);
       const subj=mailSubj(g);
       const allSent=g.items.every(i=>i.requested);
       return `<div class="draft">
-        <div class="dh"><div class="to">To：${esc(g.dept.name)} <span class="em">${esc(g.dept.email)}</span>${allSent?' <span class="confpill hi">送信済</span>':''}</div>
+        <div class="dh">
+          <div class="to-edit"><span class="to-label">To</span>
+            <input type="email" class="to-input" id="to${gi}" value="${esc(g.dept.email)}" placeholder="宛先メールアドレス" aria-label="${esc(g.dept.name)}の宛先">
+            <span class="to-dept">${esc(g.dept.name)}・${g.items.length}件</span>
+            ${allSent?' <span class="confpill hi">送信済</span>':''}
+          </div>
           <div class="row-cta">
             ${real
-              ? `<button class="btn sm pri" data-send="${gi}">${allSent?"再送信":"この課に送信"}</button>`
-              : `<a class="btn sm pri" href="mailto:${encodeURIComponent(g.dept.email)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}" data-sent="${gi}">メール作成</a>`}
+              ? `<button class="btn sm pri" data-send="${gi}">${allSent?"再送信":"この宛先に送信"}</button>`
+              : `<button class="btn sm pri" data-mailto="${gi}">メール作成</button>`}
             <button class="btn sm" data-copy="${gi}">本文コピー</button>
           </div></div>
         <div class="body" id="body${gi}">件名：${esc(subj)}\n\n${esc(body)}</div>
@@ -613,27 +623,38 @@ function viewReq(v){
     : `<div class="empty"><b>確認依頼の対象がありません</b>未処理の請求書がないか、すべて承認/差戻し済みです。</div>`}
   </div>`;
   if(!groups.length) return;
+  const emailOK=s=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((s||"").trim());
+  const getTo=gi=>{ const el=$("#to"+gi); return el? el.value.trim() : groups[gi].dept.email; };
+  // 宛先を編集したら、その課の既定アドレスにも反映（次回以降も使える）
+  groups.forEach((g,gi)=>{ const el=$("#to"+gi); if(el) el.onchange=()=>{ const val=el.value.trim(); if(emailOK(val)){ g.dept.email=val; save(); } }; });
   $("#markAll").onclick=()=>{ targets.forEach(i=>i.requested=true); save(); toast("確認依頼を記録しました"); render(); };
   v.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>{ const gi=+b.dataset.copy; const txt=$("#body"+gi).innerText; navigator.clipboard?.writeText(txt).then(()=>toast("本文をコピーしました"),()=>toast("コピーできませんでした")); });
-  v.querySelectorAll("[data-sent]").forEach(a=>a.onclick=()=>{ const gi=+a.dataset.sent; groups[gi].items.forEach(i=>i.requested=true); save(); setTimeout(render,300); });
-  async function sendGroup(g){
-    await sendMailReal({to:g.dept.email, subject:mailSubj(g), body:mailBody(g.dept.name,g.items)});
+  v.querySelectorAll("[data-mailto]").forEach(b=>b.onclick=()=>{ const gi=+b.dataset.mailto, g=groups[gi], to=getTo(gi);
+    if(!emailOK(to)){ toast("宛先メールアドレスを確認してください"); return; }
+    location.href=`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(mailSubj(g))}&body=${encodeURIComponent(mailBody(g.dept.name,g.items))}`;
+    g.items.forEach(i=>i.requested=true); save(); setTimeout(render,400); });
+  async function sendGroup(g,to){
+    await sendMailReal({to, subject:mailSubj(g), body:mailBody(g.dept.name,g.items)});
     g.items.forEach(i=>{ i.requested=true; i.requestedAt=Date.now(); });
   }
   v.querySelectorAll("[data-send]").forEach(b=>b.onclick=async ()=>{
-    const gi=+b.dataset.send, g=groups[gi];
-    if(!confirm(`${g.dept.name}（${g.dept.email}）へ確認依頼メールを送信します。よろしいですか？`)) return;
+    const gi=+b.dataset.send, g=groups[gi], to=getTo(gi);
+    if(!emailOK(to)){ toast("宛先メールアドレスを確認してください"); return; }
+    if(!confirm(`${to} へ確認依頼メールを送信します。よろしいですか？`)) return;
     b.disabled=true; b.textContent="送信中…";
-    try{ await sendGroup(g); save(); toast(`${g.dept.name} へ送信しました`); render(); }
-    catch(e){ b.disabled=false; b.textContent="この課に送信"; toast("送信失敗："+(e.message||e)); }
+    try{ await sendGroup(g,to); save(); toast(`${to} へ送信しました`); render(); }
+    catch(e){ b.disabled=false; b.textContent="この宛先に送信"; toast("送信失敗："+(e.message||e)); }
   });
   const sa=$("#sendAll");
   if(sa) sa.onclick=async ()=>{
-    if(!confirm(`${groups.length}通の確認依頼メールを一括送信します。よろしいですか？`)) return;
+    const jobs=groups.map((g,gi)=>({g,to:getTo(gi)}));
+    const bad=jobs.find(j=>!emailOK(j.to));
+    if(bad){ toast(`宛先が不正です：${bad.g.dept.name}`); return; }
+    if(!confirm(`${jobs.length}通の確認依頼メールを一括送信します。よろしいですか？`)) return;
     sa.disabled=true; let ok=0, ng=[];
-    for(const g of groups){
-      sa.textContent=`送信中… ${ok+ng.length+1}/${groups.length}`;
-      try{ await sendGroup(g); ok++; }catch(e){ ng.push(`${g.dept.name}: ${e.message||e}`); }
+    for(const j of jobs){
+      sa.textContent=`送信中… ${ok+ng.length+1}/${jobs.length}`;
+      try{ await sendGroup(j.g,j.to); ok++; }catch(e){ ng.push(`${j.g.dept.name}: ${e.message||e}`); }
     }
     save();
     toast(ng.length? `送信 ${ok}件／失敗 ${ng.length}件（${ng[0]}）` : `${ok}通すべて送信しました`);
@@ -647,9 +668,18 @@ async function sendMailReal({to,subject,body}){
   const m=S.mail||{};
   if(m.mode==="gas"){
     if(!m.gasUrl) throw new Error("GASのURLが未設定です（設定＞メール送信）");
+    if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(m.gasUrl.trim()))
+      throw new Error("GASのURL形式が正しくありません。デプロイ後に表示される「ウェブアプリのURL」（https://script.google.com/macros/s/…/exec で終わるもの）を貼ってください。エディタのURLや /dev は使えません");
     // Content-Type: text/plain でCORSプリフライトを回避（GASの定番パターン）
-    const res=await fetch(m.gasUrl,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify({to,subject,body,fromName:m.fromName||"経理オートメーション",token:m.token||""})});
+    let res;
+    try{
+      res=await fetch(m.gasUrl,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+        body:JSON.stringify({to,subject,body,fromName:m.fromName||"経理オートメーション",token:m.token||""})});
+    }catch(err){
+      let msg="GASに接続できませんでした（Failed to fetch）。最も多い原因：デプロイの「アクセスできるユーザー」が「全員」になっていない。GASエディタ→デプロイ→デプロイを管理→編集（鉛筆）→アクセス「全員」に変更→デプロイ。※設定変更後はURLが変わる場合があるので新しいURLを貼り直してください";
+      if(inFrame()) msg+="／※現在プレビュー(iframe)内で動作中の可能性。公開ページ（GitHub Pages等）で開いてお試しください";
+      throw new Error(msg);
+    }
     if(!res.ok) throw await httpErr(res);
     let j=null; try{ j=await res.json(); }catch(e){ throw new Error("GASの応答を解釈できません（デプロイ設定「全員」を確認）"); }
     if(!j.ok) throw new Error(j.error||"送信に失敗しました（GAS側のエラー）");
@@ -923,7 +953,10 @@ function doPost(e) {
   $("#mailSave").onclick=()=>{ readMail(); save(); toast("メール設定を保存しました"); render(); };
   $("#mailTest").onclick=async ()=>{ readMail(); save();
     if(!mailConfigured()){ toast("GASまたはAPIのURLを設定してください（mailtoはテスト不要）"); return; }
-    const to=S.company.accountingEmail||""; if(!to){ toast("会社設定の経理宛先メールを入力してください"); return; }
+    const def=S.company.accountingEmail||"";
+    const to=(prompt("テスト送信の宛先メールアドレスを入力してください", def)||"").trim();
+    if(!to){ return; }
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)){ toast("メールアドレスの形式が正しくありません"); return; }
     toast("テスト送信中…");
     try{ await sendMailReal({to, subject:"【テスト】AIX 送信テスト", body:"このメールは AIX 請求書オートメーションの送信テストです。\nこのメールが届いていれば設定は完了です。"}); toast(`テスト送信に成功しました（宛先：${to}）`); }
     catch(e){ toast("テスト失敗："+(e.message||e)); } };
