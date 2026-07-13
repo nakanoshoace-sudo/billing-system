@@ -271,6 +271,15 @@ function defaultState(){
     ],
     ai:{ enabled:true, mode:"auto", endpoint:"", model:"claude-sonnet-4-6", key:"" },
     mail:{ mode:"mailto", gasUrl:"", apiUrl:"", token:"", fromName:"経理オートメーション" },
+    media:[
+      {name:"Google広告",bg:"#8AB4F8",ini:"G"},{name:"Meta広告",bg:"#5B8DEF",ini:"M"},
+      {name:"Yahoo!広告",bg:"#F45B5B",ini:"Y!"},{name:"LINE広告",bg:"#4FD37A",ini:"L"},
+      {name:"TikTok広告",bg:"#9C8CF7",ini:"Tk"},{name:"X広告",bg:"#C9D2E0",ini:"X"},
+      {name:"Microsoft広告",bg:"#5CC8C2",ini:"Ms"}
+    ],
+    inboxes:[{name:"メイン受信箱", url:"", token:""}],
+    inboxQuery:"has:attachment filename:pdf newer_than:30d",
+    importedMsgIds:[],
     invoices:[],
     seq:1
   };
@@ -305,8 +314,16 @@ const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;"
 const cleanKey=s=>String(s||"").replace(/[\u200B-\u200D\uFEFF]/g,"").replace(/^["'\s]+|["'\s]+$/g,"").trim();
 const inFrame=()=>{ try{ return window.top!==window.self; }catch(e){ return true; } };
 const yen=n=>"¥"+Number(n||0).toLocaleString("ja-JP");
-const mediaKey=m=>MEDIA[m]?m:"その他";
-const logo=m=>{const k=mediaKey(m);return `<span class="mlogo" style="background:${MEDIA[k].bg}">${MEDIA[k].ini}</span>`;};
+const MPAL=["#8AB4F8","#5B8DEF","#F45B5B","#4FD37A","#9C8CF7","#C9D2E0","#5CC8C2","#F0A05B","#7CC0F0","#E58BC0"];
+function mediaInfo(name){
+  const hit=(S&&S.media||[]).find(m=>m.name===name);
+  if(hit) return {bg:hit.bg||"#7C8BA5", ini:hit.ini||String(name||"·").slice(0,2)};
+  if(!name||name==="その他") return {bg:"#7C8BA5", ini:"·"};
+  let h=0; for(const c of String(name)) h=(h*31+c.charCodeAt(0))>>>0;
+  return {bg:MPAL[h%MPAL.length], ini:String(name).slice(0,2)};
+}
+const logo=m=>{const k=mediaInfo(m);return `<span class="mlogo" style="background:${k.bg}">${k.ini}</span>`;};
+function b64toFile(b64,name){ const bin=atob(b64); const u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return new File([u],name,{type:"application/pdf"}); }
 function toast(msg){ $("#toastMsg").textContent=msg; const t=$("#toast"); t.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),2200); }
 function updateSaveChip(){ const c=$("#saveChip"); if(persistent){ c.className="savechip"; c.querySelector(".lbl").textContent="自動保存 有効"; } else { c.className="savechip mem"; c.querySelector(".lbl").textContent="メモリのみ（保存不可）"; } }
 function deptEmail(name){ const d=S.depts.find(x=>x.name===name); return d?d.email:S.company.accountingEmail; }
@@ -486,6 +503,7 @@ function viewReg(v){
     <span class="meta">受領した請求書を登録・管理。CSVで一括取込／書出できます。</span></div>
     <div class="row-cta">
       <button class="btn pri" id="rAdd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>新規登録</button>
+      <button class="btn" id="rInbox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.7 4H7.3a2 2 0 0 0-1.8 1.1z"/></svg>受信箱から取込</button>
       <button class="btn" id="rPdf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>PDF取込</button>
       <button class="btn" id="rImport">CSV取込</button>
       <button class="btn" id="rExport">CSV書出</button>
@@ -507,6 +525,7 @@ function viewReg(v){
   </div>
   <p class="footnote">PDF取込：請求書PDFから媒体・請求額・期間をブラウザ内で推定し、確認・修正して登録します（テキストPDF対応。読み込めない環境ではテキスト貼り付けに切替）。CSV列：媒体, クライアント, 期間, 請求額, 実費, 担当課, 担当者（先頭行はヘッダ）。実費が空の請求書は経理照合の画面で入力できます。</p>`;
   $("#rAdd").onclick=()=>invoiceModal(null);
+  $("#rInbox").onclick=inboxImportModal;
   $("#rPdf").onclick=pdfImportModal;
   $("#rImport").onclick=importModal;
   $("#rExport").onclick=exportInvoicesCSV;
@@ -518,7 +537,7 @@ function viewReg(v){
 
 function invoiceModal(id){
   const i = id? S.invoices.find(x=>x.id===id) : {media:"Google広告",client:"",period:"2026-06",inv:"",act:"",dept:S.depts[0]?.name||"",owner:"",flag:""};
-  const mopts=Object.keys(MEDIA).map(m=>`<option ${i.media===m?"selected":""}>${m}</option>`).join("");
+  const mopts=(S.media||[]).map(m=>`<option ${i.media===m.name?"selected":""}>${esc(m.name)}</option>`).join("")+`<option ${i.media==="その他"?"selected":""}>その他</option>`;
   const dopts=S.depts.map(d=>`<option ${i.dept===d.name?"selected":""}>${esc(d.name)}</option>`).join("");
   openModal(`${id?"請求書を編集":"請求書を新規登録"}`,`
     <div class="form">
@@ -892,25 +911,74 @@ Response: { "media": "...", "client": "...", "amount": 1240000, "period": "2026-
       </div>
       <pre style="background:#F3F5F7;border:1px solid var(--line);border-radius:10px;padding:14px;font-family:var(--mono);font-size:11px;line-height:1.7;overflow-x:auto;margin:10px 0 0;color:var(--ink-2)">var TOKEN = "ここに合言葉";  // アプリの設定と同じ値に
 
+// 統合スクリプト：メール送信 ＋ 受信箱からPDF請求書の取得
 function doPost(e) {
   try {
     var d = JSON.parse(e.postData.contents);
     if (TOKEN &amp;&amp; d.token !== TOKEN) throw new Error("invalid token");
-    MailApp.sendEmail({
-      to: d.to,
-      subject: d.subject,
-      body: d.body,
-      name: d.fromName || "経理オートメーション"
-    });
-    return ContentService.createTextOutput(JSON.stringify({ ok: true }))
-      .setMimeType(ContentService.MimeType.JSON);
+
+    if (d.action === "fetch") {           // 受信箱を検索してPDF添付を返す
+      var q = d.query || "has:attachment filename:pdf newer_than:30d";
+      var max = Math.min(d.max || 10, 20);
+      var threads = GmailApp.search(q, 0, max);
+      var out = [];
+      threads.forEach(function(t) {
+        t.getMessages().forEach(function(m) {
+          var atts = m.getAttachments().filter(function(a) {
+            return a.getContentType() === "application/pdf" || /\.pdf$/i.test(a.getName());
+          });
+          if (atts.length) out.push({
+            id: m.getId(), from: m.getFrom(), subject: m.getSubject(),
+            date: m.getDate().toISOString(),
+            attachments: atts.slice(0, 3).map(function(a) {
+              return { name: a.getName(), data: Utilities.base64Encode(a.getBytes()) };
+            })
+          });
+        });
+      });
+      return json({ ok: true, messages: out.slice(0, max) });
+    }
+
+    // 既定：メール送信
+    MailApp.sendEmail({ to: d.to, subject: d.subject, body: d.body,
+      name: d.fromName || "経理オートメーション" });
+    return json({ ok: true });
   } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: String(err) }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return json({ ok: false, error: String(err) });
   }
+}
+function json(o) {
+  return ContentService.createTextOutput(JSON.stringify(o))
+    .setMimeType(ContentService.MimeType.JSON);
 }</pre>
-      <div class="footnote" style="margin-top:8px">※ 送信元はあなたのGmailになります。GmailのAPI上限（個人アカウントは1日あたり約100通）内でご利用ください。URLと合言葉は社外に共有しないでください。</div>
+      <div class="footnote" style="margin-top:8px">※ 送信元・読み取り対象は<b>GASをデプロイしたGoogleアカウント</b>のGmailです。既存のスクリプトを使っている場合はこの統合版に貼り替え → <b>デプロイ→デプロイを管理→編集→新バージョン→デプロイ</b>で更新してください（URLは変わりません）。Gmail読み取りの初回は追加の権限承認が出ます。URLと合言葉は社外に共有しないでください。</div>
     </details>
+  </div>
+
+  <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">Inboxes</span><h2>受信箱（メール取込）</h2>
+    <span class="meta">請求書PDFを読み取るGmail受信箱。複数登録して取込時に切替できます。別アカウントの受信箱は、そのアカウントでGASをデプロイしてURLを登録してください（下の統合スクリプトが送信と受信の両方に対応）。</span></div>
+    <div class="row-cta"><button class="btn" id="ibAdd">受信箱を追加</button></div></div>
+    <div class="scrollx"><table class="dtable"><thead><tr><th>名前</th><th>GASウェブアプリURL</th><th>合言葉</th><th></th></tr></thead>
+      <tbody>${(S.inboxes||[]).map((b,k)=>`<tr>
+        <td><input class="ibName" data-k="${k}" value="${esc(b.name)}" style="background:var(--bg-2);border:1px solid var(--line);border-radius:7px;color:var(--ink);padding:6px 9px;font-family:var(--jp);font-size:12.5px;width:120px"></td>
+        <td><input class="ibUrl" data-k="${k}" value="${esc(b.url)}" placeholder="https://script.google.com/macros/s/…/exec" style="background:var(--bg-2);border:1px solid var(--line);border-radius:7px;color:var(--ink);padding:6px 9px;font-family:var(--mono);font-size:11px;width:260px"></td>
+        <td><input class="ibTok" data-k="${k}" value="${esc(b.token)}" style="background:var(--bg-2);border:1px solid var(--line);border-radius:7px;color:var(--ink);padding:6px 9px;font-family:var(--mono);font-size:11px;width:100px"></td>
+        <td class="n"><button class="btn sm icon danger" data-ibdel="${k}">✕</button></td>
+      </tr>`).join("")}</tbody></table></div>
+    <div class="footnote pad" style="padding-top:10px">メール送信と同じGAS URL・合言葉を使えます（統合スクリプト利用時）。読み取れるのは<b>GASをデプロイしたGoogleアカウントの受信箱</b>です。</div>
+  </div>
+
+  <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">Media Master</span><h2>媒体マスタ</h2>
+    <span class="meta">請求書の媒体名を編集・追加・削除できます。AI読取の候補にも反映されます。</span></div>
+    <div class="row-cta"><button class="btn" id="mdAdd">媒体を追加</button></div></div>
+    <div class="scrollx"><table class="dtable"><thead><tr><th style="width:50px">表示</th><th>媒体名</th><th>略号（2文字まで）</th><th></th></tr></thead>
+      <tbody>${(S.media||[]).map((m,k)=>`<tr>
+        <td>${logo(m.name)}</td>
+        <td><input class="mdName" data-k="${k}" value="${esc(m.name)}" style="background:var(--bg-2);border:1px solid var(--line);border-radius:7px;color:var(--ink);padding:6px 9px;font-family:var(--jp);font-size:12.5px;width:170px"></td>
+        <td><input class="mdIni" data-k="${k}" value="${esc(m.ini)}" maxlength="2" style="background:var(--bg-2);border:1px solid var(--line);border-radius:7px;color:var(--ink);padding:6px 9px;font-family:var(--mono);font-size:11.5px;width:60px"></td>
+        <td class="n"><button class="btn sm icon danger" data-mddel="${k}">✕</button></td>
+      </tr>`).join("")}</tbody></table></div>
+    <div class="footnote pad" style="padding-top:10px">媒体名を変更しても登録済み請求書の媒体名は変わりません（必要なら各請求書を編集してください）。</div>
   </div>
 
   <div class="card"><div class="ch"><div class="lt"><span class="eyebrow">Departments</span><h2>担当課・宛先</h2>
@@ -960,6 +1028,17 @@ function doPost(e) {
     toast("テスト送信中…");
     try{ await sendMailReal({to, subject:"【テスト】AIX 送信テスト", body:"このメールは AIX 請求書オートメーションの送信テストです。\nこのメールが届いていれば設定は完了です。"}); toast(`テスト送信に成功しました（宛先：${to}）`); }
     catch(e){ toast("テスト失敗："+(e.message||e)); } };
+  // 受信箱
+  v.querySelectorAll(".ibName").forEach(inp=>inp.onchange=()=>{ S.inboxes[+inp.dataset.k].name=inp.value.trim()||"受信箱"; save(); });
+  v.querySelectorAll(".ibUrl").forEach(inp=>inp.onchange=()=>{ S.inboxes[+inp.dataset.k].url=inp.value.trim(); save(); });
+  v.querySelectorAll(".ibTok").forEach(inp=>inp.onchange=()=>{ S.inboxes[+inp.dataset.k].token=inp.value.trim(); save(); });
+  v.querySelectorAll("[data-ibdel]").forEach(b=>b.onclick=()=>{ if(S.inboxes.length<=1){toast("最低1つの受信箱が必要です");return;} S.inboxes.splice(+b.dataset.ibdel,1); save(); render(); });
+  $("#ibAdd").onclick=()=>{ S.inboxes.push({name:"受信箱"+(S.inboxes.length+1), url:"", token:""}); save(); render(); };
+  // 媒体マスタ
+  v.querySelectorAll(".mdName").forEach(inp=>inp.onchange=()=>{ const val=inp.value.trim(); if(!val){toast("媒体名を入力してください");render();return;} S.media[+inp.dataset.k].name=val; save(); render(); });
+  v.querySelectorAll(".mdIni").forEach(inp=>inp.onchange=()=>{ S.media[+inp.dataset.k].ini=inp.value.trim().slice(0,2)||S.media[+inp.dataset.k].name.slice(0,2); save(); render(); });
+  v.querySelectorAll("[data-mddel]").forEach(b=>b.onclick=()=>{ if(S.media.length<=1){toast("最低1つの媒体が必要です");return;} if(confirm(`媒体「${S.media[+b.dataset.mddel].name}」を削除しますか？`)){ S.media.splice(+b.dataset.mddel,1); save(); render(); } });
+  $("#mdAdd").onclick=()=>{ const n=S.media.length; S.media.push({name:"新しい媒体", bg:MPAL[n%MPAL.length], ini:"新"}); save(); render(); };
   v.querySelectorAll(".dName").forEach(inp=>inp.onchange=()=>{ S.depts[+inp.dataset.k].name=inp.value.trim(); save(); });
   v.querySelectorAll(".dEmail").forEach(inp=>inp.onchange=()=>{ S.depts[+inp.dataset.k].email=inp.value.trim(); save(); });
   v.querySelectorAll("[data-ddel]").forEach(b=>b.onclick=()=>{ if(S.depts.length<=1){toast("最低1つの課が必要です");return;} S.depts.splice(+b.dataset.ddel,1); save(); render(); });
@@ -1045,8 +1124,9 @@ function aiEnabledForModal(){ const t=$("#aiToggle"); const on=t?t.checked:(S.ai
 function aiRunReason(){ if(!S.ai||!S.ai.enabled) return "AI抽出が無効になっています。"; if(S.ai.mode==="gemini"&&!(S.ai.key&&S.ai.key.trim())) return "Gemini APIキーが未設定です。"; if(!aiConfigured()) return "AI抽出のエンドポイントが未設定です。"; return null; }
 function fileToBase64(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]||""); r.onerror=()=>rej(new Error("read failed")); r.readAsDataURL(file); }); }
 function buildPrompt(text){
+  const names=(S.media||[]).map(m=>m.name).join("|")||"Google広告|Meta広告|Yahoo!広告";
   return `あなたは経理アシスタントです。次は広告媒体からの請求書です。以下の項目を**JSONのみ**で返してください（説明文・コードフェンス・前置き禁止）。
-{"media":"Google広告|Meta広告|Yahoo!広告|LINE広告|TikTok広告|X広告|Microsoft広告|その他 のいずれか","client":"広告主/アカウント名。無ければ空文字","amount":税込請求総額の整数(円)。無ければnull,"period":"対象期間 YYYY-MM。無ければ空文字","confidence":0〜1の数値}
+{"media":"${names}|その他 のいずれか","client":"広告主/アカウント名。無ければ空文字","amount":税込請求総額の整数(円)。無ければnull,"period":"対象期間 YYYY-MM。無ければ空文字","confidence":0〜1の数値}
 ${text?`請求書テキスト:\n"""${String(text).slice(0,8000)}"""`:"添付PDFの請求書を読み取ってください。"}`;
 }
 async function aiExtract({text,file}){
@@ -1199,7 +1279,7 @@ function addDraft(name,ext,kind){
   pdfDraft.push({ name, kind, media:ext.media||"", client:ext.client||"", inv:ext.inv||"", period:ext.period||"2026-06",
     dept:(S.depts[0]&&S.depts[0].name)||"", conf:ext.conf||0, include:true });
 }
-function mediaOpts(sel){ return `<option value="">未判定</option>`+Object.keys(MEDIA).filter(m=>m!=="その他").map(m=>`<option ${sel===m?"selected":""}>${m}</option>`).join("")+`<option ${sel==="その他"?"selected":""}>その他</option>`; }
+function mediaOpts(sel){ return `<option value="">未判定</option>`+(S.media||[]).map(m=>`<option ${sel===m.name?"selected":""}>${esc(m.name)}</option>`).join("")+`<option ${sel==="その他"?"selected":""}>その他</option>`; }
 function deptOpts(sel){ return S.depts.map(d=>`<option ${sel===d.name?"selected":""}>${esc(d.name)}</option>`).join(""); }
 function renderReview(){
   const c=$("#review"); if(!c) return;
@@ -1232,6 +1312,80 @@ function renderReview(){
   updatePdfSave();
 }
 function updatePdfSave(){ const ok=pdfDraft.some(d=>d.include && d.client.trim() && +d.inv>0); const b=$("#pdfSave"); if(b) b.disabled=!ok; }
+/* ---- 受信箱（Gmail via GAS）からPDF請求書を取込 ---- */
+async function inboxFetch(box){
+  if(!box||!box.url) throw new Error("受信箱のGAS URLが未設定です（設定＞受信箱）");
+  if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(box.url.trim()))
+    throw new Error("受信箱のURL形式が正しくありません（…/exec で終わるウェブアプリURLを設定）");
+  let res;
+  try{
+    res=await fetch(box.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify({action:"fetch", token:box.token||"", query:S.inboxQuery||"has:attachment filename:pdf newer_than:30d", max:10})});
+  }catch(err){
+    throw new Error("受信箱に接続できませんでした（Failed to fetch）。GASのデプロイが「実行：自分／アクセス：全員」か、統合スクリプト（fetch対応版）に更新済みかを確認してください");
+  }
+  if(!res.ok) throw await httpErr(res);
+  let j=null; try{ j=await res.json(); }catch(e){ throw new Error("受信箱の応答を解釈できません（GASを統合スクリプトに更新してください）"); }
+  if(!j.ok) throw new Error(j.error||"受信箱の取得に失敗しました");
+  return j.messages||[];
+}
+let inboxMsgs=[];
+function inboxImportModal(){
+  const boxes=(S.inboxes||[]).map((b,k)=>({...b,idx:k}));
+  const usable=boxes.filter(b=>b.url);
+  const opts=boxes.map(b=>`<option value="${b.idx}" ${b.url?"":"disabled"}>${esc(b.name)}${b.url?"":"（URL未設定）"}</option>`).join("");
+  openModal("受信箱からPDF請求書を取込",`
+    <div class="pad" style="padding-bottom:6px">
+      ${usable.length?"":`<div class="banner"><span class="warnpill">未設定</span><div>受信箱が未設定です。<b>設定 ＞ 受信箱（メール取込）</b>でGASのURLを登録してください。</div></div>`}
+      <div class="form" style="padding:0 0 12px">
+        <div class="field"><label>読み取る受信箱（アカウント）</label><select id="ibSel">${opts}</select></div>
+        <div class="field"><label>検索条件（Gmail検索構文）</label><input id="ibQuery" value="${esc(S.inboxQuery)}"></div>
+      </div>
+      <button class="btn pri" id="ibFetch" ${usable.length?"":"disabled"}>受信箱を確認</button>
+      <div class="pdfstatus" id="ibStatus" style="display:none"></div>
+      <div id="ibList" style="margin-top:10px"></div>
+    </div>`, null, null);
+  $("#ibFetch").onclick=async ()=>{
+    const box=S.inboxes[+$("#ibSel").value];
+    S.inboxQuery=$("#ibQuery").value.trim()||S.inboxQuery; save();
+    const st=$("#ibStatus"); st.style.display="flex"; st.className="pdfstatus";
+    st.innerHTML='<span class="spin"></span>受信箱を確認中…';
+    try{
+      inboxMsgs=await inboxFetch(box);
+      st.innerHTML=inboxMsgs.length? `✓ PDF添付のメールが ${inboxMsgs.length}件 見つかりました。取り込むものを選んでください。` : "PDF添付のメールは見つかりませんでした（検索条件を変えてお試しください）";
+      renderInboxList();
+    }catch(e){ st.className="pdfstatus err"; st.innerHTML=esc(String(e.message||e)); }
+  };
+}
+function renderInboxList(){
+  const c=$("#ibList"); if(!c) return;
+  if(!inboxMsgs.length){ c.innerHTML=""; return; }
+  const done=new Set(S.importedMsgIds||[]);
+  c.innerHTML=`<div class="scrollx"><table class="dtable">
+    <thead><tr><th style="width:34px"></th><th>件名／差出人</th><th>添付PDF</th><th>受信日</th></tr></thead>
+    <tbody>${inboxMsgs.map((m,k)=>{
+      const dup=done.has(m.id);
+      return `<tr style="${dup?'opacity:.55':''}">
+        <td><input type="checkbox" data-ib="${k}" ${dup?"":"checked"}></td>
+        <td><span class="cl">${esc(m.subject||"（件名なし）")}<span class="p">${esc(m.from||"")}</span></span>${dup?' <span class="confpill mid">取込済</span>':''}</td>
+        <td style="font-size:11px;color:var(--ink-2)">${(m.attachments||[]).map(a=>esc(a.name)).join("<br>")}</td>
+        <td style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">${esc((m.date||"").slice(0,10))}</td>
+      </tr>`;}).join("")}</tbody></table></div>
+    <button class="btn pri" id="ibImport" style="margin-top:12px">選択したPDFをAIで読み取る</button>`;
+  $("#ibImport").onclick=()=>{
+    const picks=[...c.querySelectorAll("[data-ib]:checked")].map(el=>inboxMsgs[+el.dataset.ib]);
+    if(!picks.length){ toast("取り込むメールを選択してください"); return; }
+    const files=[];
+    picks.forEach(m=>{ (m.attachments||[]).forEach(a=>{ try{ files.push(b64toFile(a.data,a.name||"invoice.pdf")); }catch(e){} });
+      if(!(S.importedMsgIds||[]).includes(m.id)) S.importedMsgIds.push(m.id); });
+    if(S.importedMsgIds.length>500) S.importedMsgIds=S.importedMsgIds.slice(-500);
+    save();
+    if(!files.length){ toast("添付PDFを読み込めませんでした"); return; }
+    closeModal();
+    pdfImportModal();
+    setTimeout(()=>handleFiles(files),80);
+  };
+}
 function savePdfDraft(){
   const rows=pdfDraft.filter(d=>d.include && d.client.trim() && +d.inv>0);
   if(!rows.length){ toast("クライアント名と請求額が必要です"); return; }
@@ -1265,6 +1419,10 @@ function migrate(){
   if(S.ai.model===undefined) S.ai.model="claude-sonnet-4-6";
   if(S.ai.mode==="gemini" && /^gemini-(1\.|2\.0-|2\.5-)/.test(S.ai.model||"")) S.ai.model="gemini-3.5-flash";
   if(!S.mail) S.mail={ mode:"mailto", gasUrl:"", apiUrl:"", token:"", fromName:"経理オートメーション" };
+  if(!S.media||!S.media.length) S.media=Object.keys(MEDIA).filter(k=>k!=="その他").map(k=>({name:k,bg:MEDIA[k].bg,ini:MEDIA[k].ini}));
+  if(!S.inboxes||!S.inboxes.length) S.inboxes=[{name:"メイン受信箱", url:S.mail&&S.mail.gasUrl||"", token:S.mail&&S.mail.token||""}];
+  if(!S.inboxQuery) S.inboxQuery="has:attachment filename:pdf newer_than:30d";
+  if(!S.importedMsgIds) S.importedMsgIds=[];
   (S.invoices||[]).forEach(i=>{ if(i.reconciled===undefined) i.reconciled="none"; if(i.approval===undefined) i.approval="pending"; if(i.pdf===undefined) i.pdf=null; });
 }
 S = loadRaw();
